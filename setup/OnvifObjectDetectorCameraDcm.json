@@ -1,0 +1,654 @@
+[
+    {
+        "@id": "dtmi:com:iotcentral:model:OnvifObjectDetectorCamera;1",
+        "@context": [
+            "dtmi:iotcentral:context;2",
+            "dtmi:dtdl:context;2"
+        ],
+        "@type": "Interface",
+        "displayName": {
+            "en": "Onvif Object Detector Camera Device"
+        },
+        "description": "Onvif Object Detector Camera Device",
+        "contents": [],
+        "extends": [
+            "dtmi:com:iotcentral:OnvifObjectDetectorCamera:DeviceInformation;1",
+            "dtmi:com:iotcentral:OnvifObjectDetectorCamera:CameraDevice;1",
+            "dtmi:com:iotcentral:OnvifObjectDetectorCamera:ObjectDetector;1"
+        ]
+    },
+    {
+        "@context": [
+            "dtmi:iotcentral:context;2",
+            "dtmi:dtdl:context;2"
+        ],
+        "@id": "dtmi:com:iotcentral:OnvifObjectDetectorCamera:DeviceInformation;1",
+        "@type": "Interface",
+        "displayName": {
+            "en": "Onvif Camera Device Information Interface"
+        },
+        "contents": [
+            {
+                "@type": "Property",
+                "comment": "Company name of the device manufacturer. This could be the same as the name of the original equipment manufacturer (OEM). Ex. Contoso.",
+                "displayName": {
+                    "en": "Manufacturer"
+                },
+                "name": "manufacturer",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Device model name or ID. Ex. Surface Book 2.",
+                "displayName": {
+                    "en": "Device model"
+                },
+                "name": "model",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Version of the software on your device. This could be the version of your firmware. Ex. 1.3.45",
+                "displayName": {
+                    "en": "Software version"
+                },
+                "name": "swVersion",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Name of the operating system on the device. Ex. Windows 10 IoT Core.",
+                "displayName": {
+                    "en": "Operating system name"
+                },
+                "name": "osName",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Architecture of the processor on the device. Ex. x64 or ARM.",
+                "displayName": {
+                    "en": "Processor architecture"
+                },
+                "name": "processorArchitecture",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Name of the manufacturer of the processor on the device. Ex. Intel.",
+                "displayName": {
+                    "en": "Processor manufacturer"
+                },
+                "name": "processorManufacturer",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Total available storage on the device in kilobytes. Ex. 2048000 kilobytes.",
+                "displayName": {
+                    "en": "Total storage"
+                },
+                "name": "totalStorage",
+                "schema": "long"
+            },
+            {
+                "@type": "Property",
+                "comment": "Total available memory on the device in kilobytes. Ex. 256000 kilobytes.",
+                "displayName": {
+                    "en": "Total memory"
+                },
+                "name": "totalMemory",
+                "schema": "long"
+            }
+        ]
+    },
+    {
+        "@id": "dtmi:com:iotcentral:OnvifObjectDetectorCamera:CameraDevice;1",
+        "@context": "dtmi:dtdl:context;2",
+        "@type": "Interface",
+        "displayName": {
+            "en": "Camera Device Interface"
+        },
+        "contents": [
+            {
+                "@type": "Telemetry",
+                "displayName": {
+                    "en": "System Heartbeat"
+                },
+                "name": "tlSystemHeartbeat",
+                "schema": "integer"
+            },
+            {
+                "@type": "Telemetry",
+                "displayName": {
+                    "en": "Inference Count"
+                },
+                "name": "tlInferenceCount",
+                "schema": "integer"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "State"
+                ],
+                "displayName": {
+                    "en": "IoT Central Client State"
+                },
+                "name": "stIoTCentralClientState",
+                "schema": {
+                    "@type": "Enum",
+                    "valueSchema": "string",
+                    "enumValues": [
+                        {
+                            "displayName": {
+                                "en": "disconnected"
+                            },
+                            "enumValue": "disconnected",
+                            "name": "disconnected"
+                        },
+                        {
+                            "displayName": {
+                                "en": "connected"
+                            },
+                            "enumValue": "connected",
+                            "name": "connected"
+                        }
+                    ]
+                }
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "State"
+                ],
+                "displayName": {
+                    "en": "Device State"
+                },
+                "name": "stDeviceState",
+                "schema": {
+                    "@type": "Enum",
+                    "valueSchema": "string",
+                    "enumValues": [
+                        {
+                            "displayName": {
+                                "en": "inactive"
+                            },
+                            "enumValue": "inactive",
+                            "name": "inactive"
+                        },
+                        {
+                            "displayName": {
+                                "en": "active"
+                            },
+                            "enumValue": "active",
+                            "name": "active"
+                        }
+                    ]
+                }
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Upload Image"
+                },
+                "name": "evUploadImage",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Device Started"
+                },
+                "name": "evDeviceStarted",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Device Stopped"
+                },
+                "name": "evDeviceStopped",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Video Stream Processing Started"
+                },
+                "name": "evVideoStreamProcessingStarted",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Video Stream Processing Stopped"
+                },
+                "name": "evVideoStreamProcessingStopped",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Video Stream Processing Error"
+                },
+                "name": "evVideoStreamProcessingError",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Device Name"
+                },
+                "name": "rpDeviceName",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "IP Address"
+                },
+                "name": "rpIpAddress",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Onvif Username"
+                },
+                "name": "rpOnvifUsername",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Onvif Password"
+                },
+                "name": "rpOnvifPassword",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "RTSP Url"
+                },
+                "name": "rpRtspUrl",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "RTSP Auth Username"
+                },
+                "name": "rpRtspAuthUsername",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "RTSP Auth Password"
+                },
+                "name": "rpRtspAuthPassword",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Debug Telemetry"
+                },
+                "name": "wpDebugTelemetry",
+                "writable": true,
+                "schema": "boolean"
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Start Image Processing"
+                },
+                "name": "cmStartImageProcessing",
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Stop Image Processing"
+                },
+                "name": "cmStopImageProcessing",
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Capture Image"
+                },
+                "name": "cmCaptureImage",
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Restart Camera"
+                },
+                "name": "cmRestartCamera",
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            }
+        ]
+    },
+    {
+        "@id": "dtmi:com:iotcentral:OnvifObjectDetectorCamera:ObjectDetector;1",
+        "@context": "dtmi:dtdl:context;2",
+        "@type": "Interface",
+        "displayName": {
+            "en": "Object Detector Interface"
+        },
+        "contents": [
+            {
+                "@type": "Telemetry",
+                "displayName": {
+                    "en": "Inference"
+                },
+                "name": "tlInference",
+                "schema": {
+                    "@type": "Object",
+                    "displayName": {
+                        "en": "Inference Payload"
+                    },
+                    "fields": [
+                        {
+                            "displayName": {
+                                "en": "type"
+                            },
+                            "name": "type",
+                            "schema": "string"
+                        },
+                        {
+                            "displayName": {
+                                "en": "entity"
+                            },
+                            "name": "entity",
+                            "schema": {
+                                "@type": "Object",
+                                "displayName": {
+                                    "en": "entity"
+                                },
+                                "fields": [
+                                    {
+                                        "displayName": {
+                                            "en": "box"
+                                        },
+                                        "name": "box",
+                                        "schema": {
+                                            "@type": "Object",
+                                            "displayName": {
+                                                "en": "box"
+                                            },
+                                            "fields": [
+                                                {
+                                                    "displayName": {
+                                                        "en": "l"
+                                                    },
+                                                    "name": "l",
+                                                    "schema": "double"
+                                                },
+                                                {
+                                                    "displayName": {
+                                                        "en": "t"
+                                                    },
+                                                    "name": "t",
+                                                    "schema": "double"
+                                                },
+                                                {
+                                                    "displayName": {
+                                                        "en": "w"
+                                                    },
+                                                    "name": "w",
+                                                    "schema": "double"
+                                                },
+                                                {
+                                                    "displayName": {
+                                                        "en": "h"
+                                                    },
+                                                    "name": "h",
+                                                    "schema": "double"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "displayName": {
+                                            "en": "tag"
+                                        },
+                                        "name": "tag",
+                                        "schema": {
+                                            "@type": "Object",
+                                            "displayName": {
+                                                "en": "tag"
+                                            },
+                                            "fields": [
+                                                {
+                                                    "displayName": {
+                                                        "en": "confidence"
+                                                    },
+                                                    "name": "confidence",
+                                                    "schema": "double"
+                                                },
+                                                {
+                                                    "displayName": {
+                                                        "en": "value"
+                                                    },
+                                                    "name": "value",
+                                                    "schema": "string"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Inference Image"
+                },
+                "name": "rpInferenceImageUrl",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Detection Classes"
+                },
+                "name": "wpDetectionClasses",
+                "writable": true,
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Confidence Threshold"
+                },
+                "name": "wpConfidenceThreshold",
+                "writable": true,
+                "schema": "double"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Inference Frame Sample Interval (sec)"
+                },
+                "name": "wpInferenceInterval",
+                "writable": true,
+                "schema": "integer"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Inference Timeout (sec)"
+                },
+                "name": "wpInferenceTimeout",
+                "writable": true,
+                "schema": "integer"
+            }
+        ]
+    }
+]

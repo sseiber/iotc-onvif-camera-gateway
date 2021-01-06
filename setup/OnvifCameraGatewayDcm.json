@@ -1,0 +1,726 @@
+[
+    {
+        "@id": "dtmi:com:iotcentral:model:OnvifCameraGateway;1",
+        "@context": [
+            "dtmi:iotcentral:context;2",
+            "dtmi:dtdl:context;2"
+        ],
+        "@type": "Interface",
+        "displayName": {
+            "en": "IoT Central Onvif Camera Management Model"
+        },
+        "contents": [
+            {
+                "@context": [
+                    "dtmi:iotcentral:context;2",
+                    "dtmi:dtdl:context;2"
+                ],
+                "@id": "dtmi:com:iotcentral:model:OnvifCameraGateway:OnvifGatewayModule;1",
+                "@type": [
+                    "Relationship",
+                    "EdgeModule"
+                ],
+                "displayName": {
+                    "en": "IoT Central Onvif Camera Gateway"
+                },
+                "maxMultiplicity": 1,
+                "name": "OnvifGatewayModule",
+                "target": [
+                    "dtmi:com:iotcentral:OnvifGatewayModule;1"
+                ]
+            }
+        ]
+    },
+    {
+        "@id": "dtmi:com:iotcentral:OnvifGatewayModule;1",
+        "@type": "Interface",
+        "contents": [
+            {
+                "@id": "dtmi:com:iotcentral:OnvifGatewayModule:rel;1",
+                "@type": [
+                    "Relationship",
+                    "GatewayDevice"
+                ],
+                "displayName": {
+                    "en": "rel"
+                },
+                "name": "rel",
+                "target": []
+            }
+        ],
+        "displayName": {
+            "en": "IoT Central Onvif Camera Gateway Module"
+        },
+        "extends": [
+            "dtmi:com:iotcentral:OnvifGatewayModule:DeviceInformation;1",
+            "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraGateway;1",
+            "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraDiscovery;1"
+        ],
+        "@context": [
+            "dtmi:iotcentral:context;2",
+            "dtmi:dtdl:context;2"
+        ]
+    },
+    {
+        "@context": [
+            "dtmi:iotcentral:context;2",
+            "dtmi:dtdl:context;2"
+        ],
+        "@id": "dtmi:com:iotcentral:OnvifGatewayModule:DeviceInformation;1",
+        "@type": "Interface",
+        "displayName": {
+            "en": "IoT Central Onvif Camera Gateway Device Information Interface"
+        },
+        "contents": [
+            {
+                "@type": "Property",
+                "comment": "Company name of the device manufacturer. This could be the same as the name of the original equipment manufacturer (OEM). Ex. Contoso.",
+                "displayName": {
+                    "en": "Manufacturer"
+                },
+                "name": "manufacturer",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Device model name or ID. Ex. Surface Book 2.",
+                "displayName": {
+                    "en": "Device model"
+                },
+                "name": "model",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Version of the software on your device. This could be the version of your firmware. Ex. 1.3.45",
+                "displayName": {
+                    "en": "Software version"
+                },
+                "name": "swVersion",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Name of the operating system on the device. Ex. Windows 10 IoT Core.",
+                "displayName": {
+                    "en": "Operating system name"
+                },
+                "name": "osName",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Architecture of the processor on the device. Ex. x64 or ARM.",
+                "displayName": {
+                    "en": "Processor architecture"
+                },
+                "name": "processorArchitecture",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Name of the manufacturer of the processor on the device. Ex. Intel.",
+                "displayName": {
+                    "en": "Processor manufacturer"
+                },
+                "name": "processorManufacturer",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "comment": "Total available storage on the device in kilobytes. Ex. 2048000 kilobytes.",
+                "displayName": {
+                    "en": "Total storage"
+                },
+                "name": "totalStorage",
+                "schema": "long"
+            },
+            {
+                "@type": "Property",
+                "comment": "Total available memory on the device in kilobytes. Ex. 256000 kilobytes.",
+                "displayName": {
+                    "en": "Total memory"
+                },
+                "name": "totalMemory",
+                "schema": "long"
+            }
+        ]
+    },
+    {
+        "@context": [
+            "dtmi:iotcentral:context;2",
+            "dtmi:dtdl:context;2"
+        ],
+        "@id": "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraGateway;1",
+        "@type": "Interface",
+        "displayName": {
+            "en": "IoT Central Onvif Camera Gateway Interface"
+        },
+        "contents": [
+            {
+                "@type": "Telemetry",
+                "displayName": {
+                    "en": "System Heartbeat"
+                },
+                "name": "tlSystemHeartbeat",
+                "schema": "integer"
+            },
+            {
+                "@type": "Telemetry",
+                "displayName": {
+                    "en": "Free Memory"
+                },
+                "name": "tlFreeMemory",
+                "schema": "long"
+            },
+            {
+                "@type": "Telemetry",
+                "displayName": {
+                    "en": "Connected Devices"
+                },
+                "name": "tlConnectedDevices",
+                "schema": "integer"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "State"
+                ],
+                "displayName": {
+                    "en": "IoT Central Client State"
+                },
+                "name": "stIoTCentralClientState",
+                "schema": {
+                    "@type": "Enum",
+                    "valueSchema": "string",
+                    "enumValues": [
+                        {
+                            "displayName": {
+                                "en": "disconnected"
+                            },
+                            "enumValue": "disconnected",
+                            "name": "disconnected"
+                        },
+                        {
+                            "displayName": {
+                                "en": "connected"
+                            },
+                            "enumValue": "connected",
+                            "name": "connected"
+                        }
+                    ]
+                }
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "State"
+                ],
+                "displayName": {
+                    "en": "IoT Central Module State"
+                },
+                "name": "stModuleState",
+                "schema": {
+                    "@type": "Enum",
+                    "valueSchema": "string",
+                    "enumValues": [
+                        {
+                            "displayName": {
+                                "en": "inactive"
+                            },
+                            "enumValue": "inactive",
+                            "name": "inactive"
+                        },
+                        {
+                            "displayName": {
+                                "en": "active"
+                            },
+                            "enumValue": "active",
+                            "name": "active"
+                        }
+                    ]
+                }
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Module Started"
+                },
+                "name": "evModuleStarted",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Module Stopped"
+                },
+                "name": "evModuleStopped",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Module Restart"
+                },
+                "name": "evModuleRestart",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Create Device"
+                },
+                "name": "evCreateCamera",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Delete Camera"
+                },
+                "name": "evDeleteCamera",
+                "schema": "string"
+            },
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Debug Telemetry"
+                },
+                "name": "wpDebugTelemetry",
+                "schema": "boolean",
+                "writable": true
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Add Camera"
+                },
+                "name": "cmAddCamera",
+                "request": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Add Camera Request"
+                    },
+                    "name": "AddCameraRequest",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Add Camera Request"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Device Id"
+                                },
+                                "name": "AddCameraRequestParams_DeviceId",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Name"
+                                },
+                                "name": "AddCameraRequestParams_Name",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "IP Address"
+                                },
+                                "name": "AddCameraRequestParams_IpAddress",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Onvif Username"
+                                },
+                                "name": "AddCameraRequestParams_OnvifUsername",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Onvif Password"
+                                },
+                                "name": "AddCameraRequestParams_OnvifPassword",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "RTSP Url"
+                                },
+                                "name": "AddCameraRequestParams_RtspUrl",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "RTSP Auth Username"
+                                },
+                                "name": "AddCameraRequestParams_RtspAuthUsername",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "RTSP Auth Password"
+                                },
+                                "name": "AddCameraRequestParams_RtspAuthPassword",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                },
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Delete Camera"
+                },
+                "name": "cmDeleteCamera",
+                "request": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Delete Camera Request"
+                    },
+                    "name": "DeleteCameraRequest",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Delete Camera Request Request"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Device Id"
+                                },
+                                "name": "DeleteCameraRequestParams_DeviceId",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                },
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Restart Module"
+                },
+                "name": "cmRestartModule",
+                "request": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Restart Module Request"
+                    },
+                    "name": "RestartModuleRequest",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Restart Module Request"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Timeout"
+                                },
+                                "name": "RestartModuleRequestParams_Timeout",
+                                "schema": "integer"
+                            }
+                        ]
+                    }
+                },
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            }
+        ]
+    },
+    {
+        "@context": [
+            "dtmi:iotcentral:context;2",
+            "dtmi:dtdl:context;2"
+        ],
+        "@id": "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraDiscovery;1",
+        "@type": "Interface",
+        "displayName": {
+            "en": "IoT Central Onvif Camera Discovery Interface"
+        },
+        "contents": [
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Camera Discovery Started"
+                },
+                "name": "evCameraDiscoveryStarted",
+                "schema": "string"
+            },
+            {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Camera Discovery Completed"
+                },
+                "name": "evCameraDiscoveryCompleted",
+                "schema": "string"
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Scan for Cameras"
+                },
+                "name": "cmScanForCameras",
+                "request": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Scan for Cameras"
+                    },
+                    "name": "ScanForCamerasRequest",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Scan for Cameras Request"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Scan Time (sec)"
+                                },
+                                "name": "ScanForCamerasRequestParams_ScanTimeout",
+                                "schema": "long"
+                            }
+                        ]
+                    }
+                },
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "@type": "Command",
+                "displayName": {
+                    "en": "Test Onvif"
+                },
+                "name": "cmTestOnvif",
+                "request": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Test Onvif Request"
+                    },
+                    "name": "TestOnvifRequest",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Test Onvif Request"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Onvif Command"
+                                },
+                                "name": "TestOnvifRequestParams_Command",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Onvif Payload"
+                                },
+                                "name": "TestOnvifRequestParams_Payload",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                },
+                "response": {
+                    "@type": "CommandPayload",
+                    "displayName": {
+                        "en": "Command Response"
+                    },
+                    "name": "CommandResponse",
+                    "schema": {
+                        "@type": "Object",
+                        "displayName": {
+                            "en": "Command Response"
+                        },
+                        "fields": [
+                            {
+                                "displayName": {
+                                    "en": "Status Code"
+                                },
+                                "name": "CommandResponseParams_StatusCode",
+                                "schema": "long"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Message"
+                                },
+                                "name": "CommandResponseParams_Message",
+                                "schema": "string"
+                            },
+                            {
+                                "displayName": {
+                                    "en": "Data"
+                                },
+                                "name": "CommandResponseParams_Data",
+                                "schema": "string"
+                            }
+                        ]
+                    }
+                }
+            }
+        ]
+    }
+]
