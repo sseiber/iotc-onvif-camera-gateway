@@ -9,6 +9,8 @@ import * as moment from 'moment';
 import * as Wreck from '@hapi/wreck';
 import { bind, sleep } from '../utils';
 
+const moduleName = 'InferenceProcessor';
+
 export interface IObjectInference {
     type: string;
     entity: {
@@ -64,7 +66,7 @@ export class InferenceProcessorService {
     }
 
     public async startInferenceProcessor(rtspVideoUrl: string): Promise<void> {
-        this.server.log(['InferenceProcessor', 'info'], `startInferenceProcessor`);
+        this.server.log([moduleName, 'info'], `startInferenceProcessor`);
 
         if (this.videoStreamController) {
             await this.videoStreamController.stopVideoStreamProcessor();
@@ -106,7 +108,7 @@ export class InferenceProcessorService {
     }
 
     public async videoStreamProcessingStarted(): Promise<void> {
-        this.server.log(['InferenceProcessor', 'info'], `Video stream processor started`);
+        this.server.log([moduleName, 'info'], `Video stream processor started`);
 
         this.lastInferenceTime = moment.utc(0);
         this.inferenceStartTime = moment.utc();
@@ -121,7 +123,7 @@ export class InferenceProcessorService {
     }
 
     public async videoStreamProcessingStopped(code: number): Promise<void> {
-        this.server.log(['InferenceProcessor', 'info'], `Video stream processor stopped with exit code: ${code}`);
+        this.server.log([moduleName, 'info'], `Video stream processor stopped with exit code: ${code}`);
 
         await this.iotcDevice.sendMeasurement({
             [ICameraDeviceInterface.Event.VideoStreamProcessingStopped]: `Device: ${this.iotcDevice.id}, code: ${code}`
@@ -129,7 +131,7 @@ export class InferenceProcessorService {
     }
 
     public async videoStreamProcessingError(error: Error): Promise<void> {
-        this.server.log(['InferenceProcessor', 'info'], `Video stream processor encountered an error: ${error.message}`);
+        this.server.log([moduleName, 'info'], `Video stream processor encountered an error: ${error.message}`);
 
         await this.iotcDevice.sendMeasurement({
             [ICameraDeviceInterface.Event.VideoStreamProcessingError]: error?.message || 'unknown'
@@ -147,14 +149,14 @@ export class InferenceProcessorService {
     private async inferenceTimer(): Promise<void> {
         try {
             if (this.iotcDevice.debugTelemetry() === true) {
-                this.server.log(['InferenceProcessor', 'info'], `Inference timer`);
+                this.server.log([moduleName, 'info'], `Inference timer`);
             }
 
             if (moment.duration(moment.utc().diff(this.lastInferenceTime)) >= moment.duration(this.inferenceTimeout, 'seconds')) {
                 if (this.lastInferenceTime.isAfter(moment.utc(0))) {
                     this.lastInferenceTime = moment.utc(0);
 
-                    this.server.log(['InferenceProcessor', 'info'], `InferenceTimeout reached`);
+                    this.server.log([moduleName, 'info'], `InferenceTimeout reached`);
 
                     await this.uploadInferenceImage(Buffer.from(this.lastInferenceImage));
                 }
@@ -163,7 +165,7 @@ export class InferenceProcessorService {
             }
             else {
                 if (moment.duration(moment.utc().diff(this.inferenceStartTime)) >= moment.duration(this.inferenceTimeout, 'seconds')) {
-                    this.server.log(['InferenceProcessor', 'info'], `MaxVideoInferenceTime reached`);
+                    this.server.log([moduleName, 'info'], `MaxVideoInferenceTime reached`);
 
                     this.lastInferenceTime = moment.utc(0);
                     this.inferenceStartTime = moment.utc();
@@ -173,7 +175,7 @@ export class InferenceProcessorService {
             }
         }
         catch (ex) {
-            this.server.log(['InferenceProcessor', 'error'], `Inference timer error: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Inference timer error: ${ex.message}`);
         }
     }
 
@@ -199,7 +201,7 @@ export class InferenceProcessorService {
             return result;
         }
         catch (ex) {
-            this.server.log(['InferenceProcessor', 'error'], `Error processing image - Yolov3 requests failed: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error processing image - Yolov3 requests failed: ${ex.message}`);
         }
 
         return [];
@@ -209,7 +211,7 @@ export class InferenceProcessorService {
         let detectionCount = 0;
 
         if (!Array.isArray(inferences)) {
-            this.server.log(['InferenceProcessor', 'error'], `Missing inferences array`);
+            this.server.log([moduleName, 'error'], `Missing inferences array`);
             return 0;
         }
 
@@ -228,7 +230,7 @@ export class InferenceProcessorService {
             }
 
             if (detectionCount > 0) {
-                this.server.log(['InferenceProcessor', 'info'], `Detected ${detectionCount} objects of type(s) [${this.detectionClasses.join(',')}]`);
+                this.server.log([moduleName, 'info'], `Detected ${detectionCount} objects of type(s) [${this.detectionClasses.join(',')}]`);
 
                 await this.iotcDevice.sendMeasurement({
                     [ICameraDeviceInterface.Telemetry.InferenceCount]: detectionCount
@@ -236,7 +238,7 @@ export class InferenceProcessorService {
             }
         }
         catch (ex) {
-            this.server.log(['InferenceProcessor', 'error'], `Error processing downstream message: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error processing downstream message: ${ex.message}`);
         }
 
         return detectionCount;
@@ -248,7 +250,7 @@ export class InferenceProcessorService {
             const { res, payload } = await Wreck.post(`http://${hostName}/score`, options);
 
             if (res.statusCode < 200 || res.statusCode > 299) {
-                this.server.log(['InferenceProcessor', 'error'], `Response status code = ${res.statusCode}`);
+                this.server.log([moduleName, 'error'], `Response status code = ${res.statusCode}`);
 
                 throw new Error(`Error statusCode: ${res.statusCode}, ${(payload as any)?.message || payload || 'An error occurred'}`);
             }
@@ -256,7 +258,7 @@ export class InferenceProcessorService {
             return (payload as any)?.inferences || [];
         }
         catch (ex) {
-            this.server.log(['InferenceProcessor', 'error'], `postYolo3Request: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `postYolo3Request: ${ex.message}`);
             throw ex;
         }
     }

@@ -36,7 +36,7 @@
                     }
                 },
                 "modules": {
-                    "CameraDiscoveryGatewayModule": {
+                    "OnvifGatewayModule": {
                         "settings": {
                             "image": "<YOUR_MODULE_IMAGE_NAME>",
                             "createOptions": "{\"HostConfig\":{\"PortBindings\":{\"9072/tcp\":[{\"HostPort\":\"9072\"}]},\"Binds\":[\"/data/storage:/data/storage\",\"/data/storage:/data/media/\"]}}"
@@ -68,14 +68,14 @@
             "properties.desired": {
                 "schemaVersion": "1.0",
                 "routes": {
-                    "CameraDiscoveryGatewayModuleOutput": "FROM /messages/modules/CameraDiscoveryGatewayModule/* INTO $upstream"
+                    "OnvifGatewayModuleOutput": "FROM /messages/modules/OnvifGatewayModule/* INTO $upstream"
                 },
                 "storeAndForwardConfiguration": {
                     "timeToLiveSecs": 7200
                 }
             }
         },
-        "CameraDiscoveryGatewayModule": {
+        "OnvifGatewayModule": {
             "properties.desired": {
                 "wpDebugTelemetry": false
             }

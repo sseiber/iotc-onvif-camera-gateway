@@ -6,6 +6,8 @@ import { platform as osPlatform } from 'os';
 import { forget } from '../utils';
 import { HealthState } from './health';
 
+const moduleName = 'VideoStreamController';
+
 const rtspVideoCaptureSource = 'rtsp';
 const ffmpegCommand = 'ffmpeg';
 const ffmpegCaptureCommandArgsMac = '-f avfoundation -framerate 15 -video_device_index ###VIDEO_SOURCE -i default -loglevel quiet -an -f image2pipe -vf scale=640:360,fps=1/###INTERVAL -q 1 pipe:1';
@@ -40,10 +42,10 @@ export class VideoStreamController {
         }
 
         if (!rtspVideoUrl) {
-            this.server.log(['VideoStreamController', 'warning'], `Not starting image capture processor because rtspVideoUrl is empty`);
+            this.server.log([moduleName, 'warning'], `Not starting image capture processor because rtspVideoUrl is empty`);
         }
 
-        this.server.log(['VideoStreamController', 'info'], `Starting image capture processor`);
+        this.server.log([moduleName, 'info'], `Starting image capture processor`);
 
         const videoSource = this.videoCaptureSource === rtspVideoCaptureSource ? rtspVideoUrl : this.videoCaptureSource;
 
@@ -106,7 +108,7 @@ export class VideoStreamController {
         await new Promise((resolve) => {
             setInterval(() => {
                 if (!this.ffmpegProcess || Date.now() - startExitProcessTime > 1000 * 5) {
-                    return resolve();
+                    return resolve('');
                 }
             }, 1000);
         });

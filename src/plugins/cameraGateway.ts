@@ -3,6 +3,8 @@ import { Server } from '@hapi/hapi';
 import { iotCentralModulePlugin } from './iotCentral';
 import { CameraGatewayService } from '../services/cameraGateway';
 
+const moduleName = 'CameraGatewayPlugin';
+
 export class CameraGatewayPlugin implements HapiPlugin {
     @inject('$server')
     private server: Server;
@@ -11,12 +13,12 @@ export class CameraGatewayPlugin implements HapiPlugin {
     private cameraGateway: CameraGatewayService;
 
     public async init() {
-        this.server.log(['CameraGatewayPlugin', 'info'], `init`);
+        this.server.log([moduleName, 'info'], `init`);
     }
 
     // @ts-ignore (options)
     public async register(server: Server, options: any) {
-        server.log(['CameraGatewayPlugin', 'info'], 'register');
+        server.log([moduleName, 'info'], 'register');
 
         try {
             await server.register({
@@ -30,7 +32,7 @@ export class CameraGatewayPlugin implements HapiPlugin {
             });
         }
         catch (ex) {
-            server.log(['CameraGatewayPlugin', 'error'], `Error while registering : ${ex.message}`);
+            server.log([moduleName, 'error'], `Error while registering : ${ex.message}`);
         }
     }
 }

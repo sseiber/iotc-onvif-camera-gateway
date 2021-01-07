@@ -20,7 +20,7 @@ export function manifest(config?: any): ComposeManifest {
             app: {
                 rootDirectory: pathResolve(__dirname, '..'),
                 storageRootDirectory: process.env.DATAMISC_ROOT || '/data/storage',
-                slogan: 'IoT Central Camera Device Discovery Gateway Sample'
+                slogan: 'Azure IoT Central Onvif Camera Management Gateway'
             }
         },
         services: [

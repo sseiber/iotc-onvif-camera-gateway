@@ -3,6 +3,8 @@ import { Server } from '@hapi/hapi';
 import { CameraGatewayService } from './cameraGateway';
 import { bind } from '../utils';
 
+const moduleName = 'HealthService';
+
 export const healthCheckInterval = 15;
 // const healthCheckTimeout = 30;
 // const healthCheckStartPeriod = 60;
@@ -26,12 +28,12 @@ export class HealthService {
     // private failingStreak = 1;
 
     public async init() {
-        this.server.log(['HealthService', 'info'], 'initialize');
+        this.server.log([moduleName, 'info'], 'initialize');
     }
 
     @bind
     public async checkHealthState(): Promise<number> {
-        this.server.log(['HealthService', 'info'], 'Health check interval');
+        this.server.log([moduleName, 'info'], 'Health check interval');
 
         return this.cameraGateway.getHealth();
     }

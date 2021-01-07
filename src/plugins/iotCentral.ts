@@ -15,6 +15,8 @@ declare module '@hapi/hapi' {
     }
 }
 
+const moduleName = 'IotCentralModulePlugin';
+
 export interface IDirectMethodResult {
     status: number;
     message: string;
@@ -46,7 +48,7 @@ export const iotCentralModulePlugin: Plugin<any> = {
 
     // @ts-ignore (server, options)
     register: async (server: Server, options: IoTCentralModulePluginOptions) => {
-        server.log(['IotCentralModulePlugin', 'info'], 'register');
+        server.log([moduleName, 'info'], 'register');
 
         if (!options.debugTelemetry) {
             throw new Error('Missing required option debugTelemetry in IoTCentralModuleOptions');
@@ -62,7 +64,7 @@ export const iotCentralModulePlugin: Plugin<any> = {
 
         const plugin = new IotCentralModule(server, options);
 
-        const iotCentralPlugin = {
+        const iotCentralPlugin: IIoTCentralModule = {
             moduleId: process.env.IOTEDGE_MODULEID || '',
             deviceId: process.env.IOTEDGE_DEVICEID || '',
             getModuleClient: () => null,
@@ -96,19 +98,23 @@ export class IotCentralModule {
         return this.moduleClient;
     }
 
-    public async startModule(): Promise<void> {
-        this.server.settings.app.iotCentralModule.moduleId = process.env.IOTEDGE_MODULEID || '';
-        this.server.settings.app.iotCentralModule.deviceId = process.env.IOTEDGE_DEVICEID || '';
-        this.server.settings.app.iotCentralModule.getModuleClient = this.getModuleClient;
-        this.server.settings.app.iotCentralModule.debugTelemetry = this.debugTelemetry;
-        this.server.settings.app.iotCentralModule.sendMeasurement = this.sendMeasurement;
-        this.server.settings.app.iotCentralModule.updateModuleProperties = this.updateModuleProperties;
-        this.server.settings.app.iotCentralModule.addDirectMethod = this.addDirectMethod;
-        this.server.settings.app.iotCentralModule.invokeDirectMethod = this.invokeDirectMethod;
+    public async startModule(): Promise<boolean> {
+        if (process.env.LOCAL_DEBUG === '1') {
+            return;
+        }
 
         let result = true;
 
         try {
+            this.server.settings.app.iotCentralModule.moduleId = process.env.IOTEDGE_MODULEID || '';
+            this.server.settings.app.iotCentralModule.deviceId = process.env.IOTEDGE_DEVICEID || '';
+            this.server.settings.app.iotCentralModule.getModuleClient = this.getModuleClient;
+            this.server.settings.app.iotCentralModule.debugTelemetry = this.debugTelemetry;
+            this.server.settings.app.iotCentralModule.sendMeasurement = this.sendMeasurement;
+            this.server.settings.app.iotCentralModule.updateModuleProperties = this.updateModuleProperties;
+            this.server.settings.app.iotCentralModule.addDirectMethod = this.addDirectMethod;
+            this.server.settings.app.iotCentralModule.invokeDirectMethod = this.invokeDirectMethod;
+
             result = await this.connectModuleClient();
 
             if (result === true) {
@@ -122,6 +128,8 @@ export class IotCentralModule {
 
             this.server.log(['IoTCentralModule', 'error'], `Exception during IoT Central device provsioning: ${ex.message}`);
         }
+
+        return result;
     }
 
     @bind
@@ -204,10 +212,14 @@ export class IotCentralModule {
                 responseTimeoutInSeconds: 30
             };
 
+            if (this.debugTelemetry() === true) {
+                this.server.log(['IoTCentralModule', 'info'], `invokeOnvifModuleMethod request: ${JSON.stringify(methodParams, null, 4)}`);
+            }
+
             const response = await this.moduleClient.invokeMethod(this.server.settings.app.iotCentralModule.deviceId, deviceId, methodParams);
 
             if (this.debugTelemetry() === true) {
-                this.server.log(['IoTCentralModule', 'info'], `invokeLvaModuleMethod response: ${JSON.stringify(response, null, 4)}`);
+                this.server.log(['IoTCentralModule', 'info'], `invokeOnvifModuleMethod response: ${JSON.stringify(response, null, 4)}`);
             }
 
             directMethodResult.status = response.status;

@@ -360,23 +360,9 @@
                             },
                             {
                                 "displayName": {
-                                    "en": "RTSP Url"
+                                    "en": "Onvif Media Profile Token"
                                 },
-                                "name": "AddCameraRequestParams_RtspUrl",
-                                "schema": "string"
-                            },
-                            {
-                                "displayName": {
-                                    "en": "RTSP Auth Username"
-                                },
-                                "name": "AddCameraRequestParams_RtspAuthUsername",
-                                "schema": "string"
-                            },
-                            {
-                                "displayName": {
-                                    "en": "RTSP Auth Password"
-                                },
-                                "name": "AddCameraRequestParams_RtspAuthPassword",
+                                "name": "AddCameraRequestParams_OnvifMediaProfileToken",
                                 "schema": "string"
                             }
                         ]

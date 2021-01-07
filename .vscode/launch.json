@@ -25,7 +25,7 @@
                 "NODE_ENV": "local",
                 "PORT": "9072",
                 "DATAMISC_ROOT": "${workspaceFolder}/storage",
-                "LOCAL_DEBUG": "0"
+                "LOCAL_DEBUG": "1"
             }
         }
     ]

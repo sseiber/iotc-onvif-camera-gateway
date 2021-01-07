@@ -2,9 +2,12 @@ const ROOT = '__ROOT__';
 import { service, inject } from 'spryly';
 import { Server } from '@hapi/hapi';
 import * as fse from 'fs-extra';
-import { resolve as pathResolve } from 'path';
 import * as _get from 'lodash.get';
 import * as _set from 'lodash.set';
+
+import { resolve as pathResolve } from 'path';
+
+const moduleName = 'StorageService';
 
 @service('storage')
 export class StorageService {
@@ -12,10 +15,10 @@ export class StorageService {
     private server: Server;
 
     private setupDone = false;
-    private storageDirectory;
+    private storageDirectory: string;
 
     public async init() {
-        this.server.log(['StorageService', 'info'], 'initialize');
+        this.server.log([moduleName, 'info'], 'initialize');
 
         this.storageDirectory = this.server.settings.app.storageRootDirectory;
 
@@ -23,7 +26,7 @@ export class StorageService {
             this.setup();
         }
         catch (ex) {
-            this.server.log(['StorageService', 'error'], `Exception during storage setup: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Exception during storage setup: ${ex.message}`);
         }
     }
 
@@ -83,7 +86,7 @@ export class StorageService {
         this.setupDone = true;
     }
 
-    private async readScope(scope): Promise<any> {
+    private async readScope(scope: string): Promise<any> {
         try {
             this.setup();
 
@@ -99,7 +102,7 @@ export class StorageService {
         }
     }
 
-    private writeScope(scope, data) {
+    private writeScope(scope: string, data: any) {
         try {
             this.setup();
 
@@ -115,7 +118,7 @@ export class StorageService {
         }
     }
 
-    private getScopePath(scope) {
+    private getScopePath(scope: string) {
         return pathResolve(this.storageDirectory, `${scope}.json`);
     }
 }

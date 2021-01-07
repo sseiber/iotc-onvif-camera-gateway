@@ -2,7 +2,10 @@ import { inject, service } from 'spryly';
 import { Server } from '@hapi/hapi';
 import { StorageService } from './storage';
 import { HealthState } from './health';
-import { ObjectDetectorDevice } from './objectDetectorDevice';
+import {
+    IObjectDetectorCreateOptions,
+    ObjectDetectorDevice
+} from './objectDetectorDevice';
 import { SymmetricKeySecurityClient } from 'azure-iot-security-symmetric-key';
 import { ProvisioningDeviceClient } from 'azure-iot-provisioning-device';
 import { Mqtt as ProvisioningTransport } from 'azure-iot-provisioning-device-mqtt';
@@ -23,8 +26,21 @@ import {
 // import { exec as processExec } from 'child_process';
 import * as crypto from 'crypto';
 import * as Wreck from '@hapi/wreck';
-import { bind, emptyObj, forget } from '../utils';
+import { bind, emptyObj, forget, sleep } from '../utils';
 import { IDirectMethodResult } from '../plugins/iotCentral';
+
+const moduleName = 'CameraGatewayService';
+
+export interface IIoTCentralAppKeys {
+    iotCentralAppHost: string;
+    iotCentralAppApiToken: string;
+    iotCentralDeviceProvisioningKey: string;
+    iotCentralScopeId: string;
+    azureBlobHostUrl: string;
+    azureBlobContainer: string;
+    azureBlobAccountName: string;
+    azureBlobAccountKey: string;
+}
 
 interface ISystemProperties {
     cpuModel: string;
@@ -32,13 +48,6 @@ interface ISystemProperties {
     cpuUsage: number;
     totalMemory: number;
     freeMemory: number;
-}
-
-interface IIoTCentralAppKeys {
-    iotCentralAppHost: string;
-    iotCentralAppApiToken: string;
-    iotCentralDeviceProvisioningKey: string;
-    iotCentralScopeId: string;
 }
 
 enum IotcEdgeHostProperties {
@@ -58,9 +67,7 @@ export interface ICameraProvisionInfo {
     ipAddress: string;
     onvifUsername: string;
     onvifPassword: string;
-    rtspUrl: string;
-    rtspAuthUsername: string;
-    rtspAuthPassword: string;
+    onvifMediaProfileToken: string;
 }
 
 interface IProvisionResult {
@@ -72,12 +79,12 @@ interface IProvisionResult {
     deviceInstance: ObjectDetectorDevice;
 }
 
-enum IotcCameraDeviceDiscoveryGatewaySettings {
+enum OnvifCameraGatewaySettings {
     DebugTelemetry = 'wpDebugTelemetry'
 }
 
-interface IIotcCameraDeviceDiscoveryGatewaySettings {
-    [IotcCameraDeviceDiscoveryGatewaySettings.DebugTelemetry]: boolean;
+interface IOnvifCameraGatewaySettings {
+    [OnvifCameraGatewaySettings.DebugTelemetry]: boolean;
 }
 
 enum IoTCentralClientState {
@@ -96,9 +103,7 @@ enum AddCameraRequestParams {
     IpAddress = 'AddCameraRequestParams_IpAddress',
     OnvifUsername = 'AddCameraRequestParams_OnvifUsername',
     OnvifPassword = 'AddCameraRequestParams_OnvifPassword',
-    RtspUrl = 'AddCameraRequestParams_RtspUrl',
-    RtspAuthUsername = 'AddCameraRequestParams_RtspAuthUsername',
-    RtspAuthPassword = 'AddCameraRequestParams_RtspAuthPassword'
+    OnvifMediaProfileToken = 'AddCameraRequestParams_OnvifMediaProfileToken'
 }
 
 enum DeleteCameraRequestParams {
@@ -128,7 +133,7 @@ enum CommandResponseParams {
     Data = 'CommandResponseParams_Data'
 }
 
-export const IotcCameraDeviceDiscoveryGatewayInterface = {
+export const IOnvifCameraGateway = {
     Telemetry: {
         SystemHeartbeat: 'tlSystemHeartbeat',
         FreeMemory: 'tlFreeMemory',
@@ -147,7 +152,7 @@ export const IotcCameraDeviceDiscoveryGatewayInterface = {
         RestartCamera: 'evRestartCamera'
     },
     Setting: {
-        DebugTelemetry: IotcCameraDeviceDiscoveryGatewaySettings.DebugTelemetry
+        DebugTelemetry: OnvifCameraGatewaySettings.DebugTelemetry
     },
     Command: {
         AddCamera: 'cmAddCamera',
@@ -157,7 +162,7 @@ export const IotcCameraDeviceDiscoveryGatewayInterface = {
     }
 };
 
-export const IotcCameraDiscoveryInterface = {
+export const IOnvifCameraDiscovery = {
     Event: {
         CameraDiscoveryStarted: 'evCameraDiscoveryStarted',
         CameraDiscoveryCompleted: 'evCameraDiscoveryCompleted'
@@ -170,7 +175,8 @@ export const IotcCameraDiscoveryInterface = {
 
 const defaultHealthCheckRetries: number = 3;
 const defaultDpsProvisioningHost: string = 'global.azure-devices-provisioning.net';
-const defaultLeafDeviceModelId: string = 'urn:IoTCentral:IotcCameraDiscoveryObjectDetectorDevice:1';
+const defaultLeafDeviceModelId: string = 'dtmi:com:iotcentral:model:OnvifObjectDetectorCamera;1';
+const defaultLeafDeviceInterfaceInstanceName: string = 'com_iotcentral_OnvifObjectDetectorCamera_CameraDevice';
 
 @service('cameraGateway')
 export class CameraGatewayService {
@@ -184,34 +190,39 @@ export class CameraGatewayService {
     private healthCheckRetries: number = defaultHealthCheckRetries;
     private healthState = HealthState.Good;
     private healthCheckFailStreak: number = 0;
-    private moduleSettings: IIotcCameraDeviceDiscoveryGatewaySettings = {
-        [IotcCameraDeviceDiscoveryGatewaySettings.DebugTelemetry]: false
+    private moduleSettings: IOnvifCameraGatewaySettings = {
+        [OnvifCameraGatewaySettings.DebugTelemetry]: false
     };
     private iotCentralAppKeys: IIoTCentralAppKeys = {
         iotCentralAppHost: '',
         iotCentralAppApiToken: '',
         iotCentralDeviceProvisioningKey: '',
-        iotCentralScopeId: ''
+        iotCentralScopeId: '',
+        azureBlobHostUrl: '',
+        azureBlobContainer: '',
+        azureBlobAccountName: '',
+        azureBlobAccountKey: ''
     };
     private deviceMap = new Map<string, ObjectDetectorDevice>();
     private dpsProvisioningHost: string = defaultDpsProvisioningHost;
     private leafDeviceModelId: string = defaultLeafDeviceModelId;
+    private leafDeviceInterfaceInstanceName: string = defaultLeafDeviceInterfaceInstanceName;
 
     public async init() {
-        this.server.log(['CameraGatewayService', 'info'], 'initialize');
+        this.server.log([moduleName, 'info'], 'initialize');
     }
 
     @bind
     public debugTelemetry(): boolean {
-        return this.moduleSettings[IotcCameraDeviceDiscoveryGatewaySettings.DebugTelemetry];
+        return this.moduleSettings[OnvifCameraGatewaySettings.DebugTelemetry];
     }
 
     @bind
     public async onHandleModuleProperties(desiredChangedSettings: any) {
         try {
-            this.server.log(['CameraGatewayService', 'info'], `onHandleModuleProperties`);
+            this.server.log([moduleName, 'info'], `onHandleModuleProperties`);
             if (this.debugTelemetry() === true) {
-                this.server.log(['CameraGatewayService', 'info'], `desiredChangedSettings:\n${JSON.stringify(desiredChangedSettings, null, 4)}`);
+                this.server.log([moduleName, 'info'], `desiredChangedSettings:\n${JSON.stringify(desiredChangedSettings, null, 4)}`);
             }
 
             const patchedProperties = {};
@@ -228,12 +239,12 @@ export class CameraGatewayService {
                 const value = desiredChangedSettings[setting];
 
                 switch (setting) {
-                    case IotcCameraDeviceDiscoveryGatewayInterface.Setting.DebugTelemetry:
+                    case IOnvifCameraGateway.Setting.DebugTelemetry:
                         patchedProperties[setting] = (this.moduleSettings[setting] as any) = value || false;
                         break;
 
                     default:
-                        this.server.log(['CameraGatewayService', 'error'], `Received desired property change for unknown setting '${setting}'`);
+                        this.server.log([moduleName, 'error'], `Received desired property change for unknown setting '${setting}'`);
                         break;
                 }
             }
@@ -243,7 +254,7 @@ export class CameraGatewayService {
             }
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Exception while handling desired properties: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Exception while handling desired properties: ${ex.message}`);
         }
     }
 
@@ -255,22 +266,23 @@ export class CameraGatewayService {
 
     @bind
     public async onModuleReady(): Promise<void> {
-        this.server.log(['CameraGatewayService', 'info'], `Module ready`);
+        this.server.log([moduleName, 'info'], `Module ready`);
 
         this.onvifModuleId = process.env.onvifModuleId;
         this.healthCheckRetries = Number(process.env.healthCheckRetries) || defaultHealthCheckRetries;
         this.healthState = this.server.settings.app.iotCentralModule.getModuleClient() ? HealthState.Good : HealthState.Critical;
 
-        this.server.settings.app.iotCentralModule.addDirectMethod(IotcCameraDeviceDiscoveryGatewayInterface.Command.AddCamera, this.addCameraDirectMethod);
-        this.server.settings.app.iotCentralModule.addDirectMethod(IotcCameraDeviceDiscoveryGatewayInterface.Command.DeleteCamera, this.deleteCameraDirectMethod);
-        this.server.settings.app.iotCentralModule.addDirectMethod(IotcCameraDeviceDiscoveryGatewayInterface.Command.RestartCamera, this.restartCameraDirectMethod);
-        this.server.settings.app.iotCentralModule.addDirectMethod(IotcCameraDeviceDiscoveryGatewayInterface.Command.RestartModule, this.restartModuleDirectMethod);
-        this.server.settings.app.iotCentralModule.addDirectMethod(IotcCameraDiscoveryInterface.Command.ScanForCameras, this.scanForCamerasDirectMethod);
-        this.server.settings.app.iotCentralModule.addDirectMethod(IotcCameraDiscoveryInterface.Command.TestOnvif, this.testOnvifDirectMethod);
+        this.iotCentralAppKeys = await this.getIoTCentralAppKeys();
+
+        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.AddCamera, this.addCameraDirectMethod);
+        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.DeleteCamera, this.deleteCameraDirectMethod);
+        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.RestartCamera, this.restartCameraDirectMethod);
+        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.RestartModule, this.restartModuleDirectMethod);
+        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraDiscovery.Command.ScanForCameras, this.scanForCamerasDirectMethod);
+        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraDiscovery.Command.TestOnvif, this.testOnvifDirectMethod);
 
         const systemProperties = await this.getSystemProperties();
         const moduleProperties = await this.getEdgeDeviceProperties();
-        this.iotCentralAppKeys = await this.getIoTCentralAppKeys();
 
         await this.server.settings.app.iotCentralModule.updateModuleProperties({
             ...moduleProperties,
@@ -281,9 +293,9 @@ export class CameraGatewayService {
         });
 
         await this.server.settings.app.iotCentralModule.sendMeasurement({
-            [IotcCameraDeviceDiscoveryGatewayInterface.State.IoTCentralClientState]: IoTCentralClientState.Connected,
-            [IotcCameraDeviceDiscoveryGatewayInterface.State.ModuleState]: ModuleState.Active,
-            [IotcCameraDeviceDiscoveryGatewayInterface.Event.ModuleStarted]: 'Module initialization'
+            [IOnvifCameraGateway.State.IoTCentralClientState]: IoTCentralClientState.Connected,
+            [IOnvifCameraGateway.State.ModuleState]: ModuleState.Active,
+            [IOnvifCameraGateway.Event.ModuleStarted]: 'Module initialization'
         });
 
         await this.recreateExistingDevices();
@@ -299,8 +311,8 @@ export class CameraGatewayService {
                 const systemProperties = await this.getSystemProperties();
                 const freeMemory = systemProperties?.freeMemory || 0;
 
-                healthTelemetry[IotcCameraDeviceDiscoveryGatewayInterface.Telemetry.FreeMemory] = freeMemory;
-                healthTelemetry[IotcCameraDeviceDiscoveryGatewayInterface.Telemetry.ConnectedDevices] = this.deviceMap.size;
+                healthTelemetry[IOnvifCameraGateway.Telemetry.FreeMemory] = freeMemory;
+                healthTelemetry[IOnvifCameraGateway.Telemetry.ConnectedDevices] = this.deviceMap.size;
 
                 // TODO:
                 // Find the right threshold for this metric
@@ -308,7 +320,7 @@ export class CameraGatewayService {
                     healthState = HealthState.Critical;
                 }
 
-                healthTelemetry[IotcCameraDeviceDiscoveryGatewayInterface.Telemetry.SystemHeartbeat] = healthState;
+                healthTelemetry[IOnvifCameraGateway.Telemetry.SystemHeartbeat] = healthState;
 
                 await this.server.settings.app.iotCentralModule.sendMeasurement(healthTelemetry);
             }
@@ -320,7 +332,7 @@ export class CameraGatewayService {
             }
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Error in healthState (may indicate a critical issue): ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error in healthState (may indicate a critical issue): ${ex.message}`);
             this.healthState = HealthState.Critical;
         }
 
@@ -338,13 +350,13 @@ export class CameraGatewayService {
     }
 
     private async restartModule(timeout: number, reason: string): Promise<void> {
-        this.server.log(['CameraGatewayService', 'info'], `Module restart requested...`);
+        this.server.log([moduleName, 'info'], `Module restart requested...`);
 
         try {
             await this.server.settings.app.iotCentralModule.sendMeasurement({
-                [IotcCameraDeviceDiscoveryGatewayInterface.Event.ModuleRestart]: reason,
-                [IotcCameraDeviceDiscoveryGatewayInterface.State.ModuleState]: ModuleState.Inactive,
-                [IotcCameraDeviceDiscoveryGatewayInterface.Event.ModuleStopped]: 'Module restart'
+                [IOnvifCameraGateway.Event.ModuleRestart]: reason,
+                [IOnvifCameraGateway.State.ModuleState]: ModuleState.Inactive,
+                [IOnvifCameraGateway.Event.ModuleStopped]: 'Module restart'
             });
 
             if (timeout > 0) {
@@ -356,11 +368,11 @@ export class CameraGatewayService {
             }
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `${ex.message}`);
+            this.server.log([moduleName, 'error'], `${ex.message}`);
         }
 
         // let Docker restart our container
-        this.server.log(['CameraGatewayService', 'info'], `Shutting down main process - module container will restart`);
+        this.server.log([moduleName, 'info'], `Shutting down main process - module container will restart`);
         process.exit(1);
     }
 
@@ -384,7 +396,7 @@ export class CameraGatewayService {
             result = await this.storage.get('state', 'iotCentral.properties');
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Error reading module properties: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error reading module properties: ${ex.message}`);
         }
 
         return result;
@@ -397,14 +409,14 @@ export class CameraGatewayService {
             result = await this.storage.get('state', 'iotCentral.appKeys');
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Error reading app keys: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error reading app keys: ${ex.message}`);
         }
 
         return result;
     }
 
     private async recreateExistingDevices() {
-        this.server.log(['CameraGatewayService', 'info'], 'recreateExistingDevices');
+        this.server.log([moduleName, 'info'], 'recreateExistingDevices');
 
         try {
             const deviceListResponse = await this.makeRequest(
@@ -419,17 +431,17 @@ export class CameraGatewayService {
 
             const deviceList = deviceListResponse.payload?.value || [];
 
-            this.server.log(['CameraGatewayService', 'info'], `Found ${deviceList.length} devices`);
+            this.server.log([moduleName, 'info'], `Found ${deviceList.length} devices`);
             if (this.debugTelemetry() === true) {
-                this.server.log(['CameraGatewayService', 'info'], `${JSON.stringify(deviceList, null, 4)}`);
+                this.server.log([moduleName, 'info'], `${JSON.stringify(deviceList, null, 4)}`);
             }
 
             for (const device of deviceList) {
                 try {
-                    this.server.log(['CameraGatewayService', 'info'], `Getting properties for device: ${device.id}`);
+                    this.server.log([moduleName, 'info'], `Getting properties for device: ${device.id}`);
 
                     const devicePropertiesResponse = await this.makeRequest(
-                        `https://${this.iotCentralAppKeys.iotCentralAppHost}/api/preview/devices/${device.id}/properties`,
+                        `https://${this.iotCentralAppKeys.iotCentralAppHost}/api/preview/devices/${device.id}/components/${this.leafDeviceInterfaceInstanceName}/properties`,
                         'get',
                         {
                             headers: {
@@ -438,33 +450,29 @@ export class CameraGatewayService {
                             json: true
                         });
 
-                    if (devicePropertiesResponse?.payload?.IObjectDetectorInterface) {
-                        const deviceInterfaceProperties = devicePropertiesResponse.payload.IObjectDetectorInterface;
-
-                        this.server.log(['CameraGatewayService', 'info'], `Recreating device: ${device.id}`);
+                    if (devicePropertiesResponse.payload) {
+                        this.server.log([moduleName, 'info'], `Recreating device: ${device.id}`);
 
                         await this.createCamera({
                             deviceId: device.id,
-                            deviceName: deviceInterfaceProperties.rpDeviceName,
-                            ipAddress: deviceInterfaceProperties.rpIpAddress,
-                            onvifUsername: deviceInterfaceProperties.rpOnvifUsername,
-                            onvifPassword: deviceInterfaceProperties.rpOnvifPassword,
-                            rtspUrl: deviceInterfaceProperties.rpRtspUrl,
-                            rtspAuthUsername: deviceInterfaceProperties.rpRtspAuthUsername,
-                            rtspAuthPassword: deviceInterfaceProperties.rpRtspAuthPassword
+                            deviceName: devicePropertiesResponse.payload.rpDeviceName,
+                            ipAddress: devicePropertiesResponse.payload.rpIpAddress,
+                            onvifUsername: devicePropertiesResponse.payload.rpOnvifUsername,
+                            onvifPassword: devicePropertiesResponse.payload.rpOnvifPassword,
+                            onvifMediaProfileToken: devicePropertiesResponse.payload.rpOnvifMediaProfileToken
                         });
                     }
                     else {
-                        this.server.log(['CameraGatewayService', 'info'], `Found device: ${device.id} - but it is not a Discovery Gateway device`);
+                        this.server.log([moduleName, 'info'], `Found device: ${device.id} - but it is not a Onvif camera device`);
                     }
                 }
                 catch (ex) {
-                    this.server.log(['CameraGatewayService', 'error'], `An error occurred while re-creating devices: ${ex.message}`);
+                    this.server.log([moduleName, 'error'], `An error occurred while re-creating devices: ${ex.message}`);
                 }
             }
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Failed to get device list: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Failed to get device list: ${ex.message}`);
         }
 
         // If there were errors, we may be in a bad state (e.g. an ams inference device exists
@@ -473,7 +481,7 @@ export class CameraGatewayService {
     }
 
     private async createCamera(cameraInfo: ICameraProvisionInfo): Promise<IProvisionResult> {
-        this.server.log(['CameraGatewayService', 'info'], `createCamera - deviceId: ${cameraInfo.deviceId}, deviceName: ${cameraInfo.deviceName}, ipAddress: ${cameraInfo.ipAddress}`);
+        this.server.log([moduleName, 'info'], `createCamera - deviceId: ${cameraInfo.deviceId}, deviceName: ${cameraInfo.deviceName}, ipAddress: ${cameraInfo.ipAddress}`);
 
         let deviceProvisionResult: IProvisionResult = {
             dpsProvisionStatus: false,
@@ -489,19 +497,7 @@ export class CameraGatewayService {
                 deviceProvisionResult.dpsProvisionStatus = false;
                 deviceProvisionResult.dpsProvisionMessage = `Missing device configuration - skipping DPS provisioning`;
 
-                this.server.log(['CameraGatewayService', 'error'], deviceProvisionResult.dpsProvisionMessage);
-
-                return deviceProvisionResult;
-            }
-
-            if (!this.iotCentralAppKeys.iotCentralAppHost
-                || !this.iotCentralAppKeys.iotCentralAppApiToken
-                || !this.iotCentralAppKeys.iotCentralDeviceProvisioningKey
-                || !this.iotCentralAppKeys.iotCentralScopeId) {
-
-                deviceProvisionResult.dpsProvisionStatus = false;
-                deviceProvisionResult.dpsProvisionMessage = `Missing device management settings (ScopeId)`;
-                this.server.log(['CameraGatewayService', 'error'], deviceProvisionResult.dpsProvisionMessage);
+                this.server.log([moduleName, 'error'], deviceProvisionResult.dpsProvisionMessage);
 
                 return deviceProvisionResult;
             }
@@ -511,23 +507,23 @@ export class CameraGatewayService {
             if (deviceProvisionResult.dpsProvisionStatus === true && deviceProvisionResult.clientConnectionStatus === true) {
                 this.deviceMap.set(cameraInfo.deviceId, deviceProvisionResult.deviceInstance);
 
-                await this.server.settings.app.iotCentralModule.sendMeasurement({ [IotcCameraDeviceDiscoveryGatewayInterface.Event.CreateCamera]: cameraInfo.deviceId });
+                await this.server.settings.app.iotCentralModule.sendMeasurement({ [IOnvifCameraGateway.Event.CreateCamera]: cameraInfo.deviceId });
 
-                this.server.log(['CameraGatewayService', 'info'], `Succesfully provisioned device with id: ${cameraInfo.deviceId}`);
+                this.server.log([moduleName, 'info'], `Succesfully provisioned device with id: ${cameraInfo.deviceId}`);
             }
         }
         catch (ex) {
             deviceProvisionResult.dpsProvisionStatus = false;
             deviceProvisionResult.dpsProvisionMessage = `Error while provisioning device: ${ex.message}`;
 
-            this.server.log(['CameraGatewayService', 'error'], deviceProvisionResult.dpsProvisionMessage);
+            this.server.log([moduleName, 'error'], deviceProvisionResult.dpsProvisionMessage);
         }
 
         return deviceProvisionResult;
     }
 
     private async createAndProvisionDevice(cameraInfo: ICameraProvisionInfo): Promise<IProvisionResult> {
-        this.server.log(['CameraGatewayService', 'info'], `Provisioning device - id: ${cameraInfo.deviceId}`);
+        this.server.log([moduleName, 'info'], `Provisioning device - id: ${cameraInfo.deviceId}`);
 
         const deviceProvisionResult: IProvisionResult = {
             dpsProvisionStatus: false,
@@ -540,7 +536,7 @@ export class CameraGatewayService {
 
         try {
             const deviceKey = this.computeDeviceKey(cameraInfo.deviceId, this.iotCentralAppKeys.iotCentralDeviceProvisioningKey);
-            this.server.log(['CameraGatewayService', 'info'], `Computed deviceKey: ${deviceKey}`);
+            this.server.log([moduleName, 'info'], `Computed deviceKey: ${deviceKey}`);
 
             const provisioningSecurityClient = new SymmetricKeySecurityClient(cameraInfo.deviceId, deviceKey);
             const provisioningClient = ProvisioningDeviceClient.create(
@@ -549,7 +545,7 @@ export class CameraGatewayService {
                 new ProvisioningTransport(),
                 provisioningSecurityClient);
 
-            this.server.log(['CameraGatewayService', 'info'], `Created provisioningClient succeeded`);
+            this.server.log([moduleName, 'info'], `Created provisioningClient succeeded`);
 
             const provisioningPayload = {
                 iotcModelId: this.leafDeviceModelId,
@@ -560,7 +556,7 @@ export class CameraGatewayService {
             };
 
             provisioningClient.setProvisioningPayload(provisioningPayload);
-            this.server.log(['CameraGatewayService', 'info'], `setProvisioningPayload succeeded ${JSON.stringify(provisioningPayload, null, 4)}`);
+            this.server.log([moduleName, 'info'], `setProvisioningPayload succeeded ${JSON.stringify(provisioningPayload, null, 4)}`);
 
             const dpsConnectionString = await new Promise<string>((resolve, reject) => {
                 provisioningClient.register((dpsError, dpsResult) => {
@@ -568,22 +564,28 @@ export class CameraGatewayService {
                         return reject(dpsError);
                     }
 
-                    this.server.log(['CameraGatewayService', 'info'], `DPS registration succeeded - hub: ${dpsResult.assignedHub}`);
+                    this.server.log([moduleName, 'info'], `DPS registration succeeded - hub: ${dpsResult.assignedHub}`);
 
                     return resolve(`HostName=${dpsResult.assignedHub};DeviceId=${dpsResult.deviceId};SharedAccessKey=${deviceKey}`);
                 });
             });
-            this.server.log(['CameraGatewayService', 'info'], `register device client succeeded`);
+            this.server.log([moduleName, 'info'], `register device client succeeded`);
 
             deviceProvisionResult.dpsProvisionStatus = true;
             deviceProvisionResult.dpsProvisionMessage = `IoT Central successfully provisioned device: ${cameraInfo.deviceId}`;
             deviceProvisionResult.dpsHubConnectionString = dpsConnectionString;
 
-            deviceProvisionResult.deviceInstance = new ObjectDetectorDevice(this.server, cameraInfo, this.onvifModuleId);
+            const objectDetectorCreateOptions: IObjectDetectorCreateOptions = {
+                cameraInfo,
+                onvifModuleId: this.onvifModuleId,
+                appKeys: this.iotCentralAppKeys
+            };
+
+            deviceProvisionResult.deviceInstance = new ObjectDetectorDevice(this.server, objectDetectorCreateOptions);
 
             const { clientConnectionStatus, clientConnectionMessage } = await deviceProvisionResult.deviceInstance.connectDeviceClient(deviceProvisionResult.dpsHubConnectionString);
 
-            this.server.log(['CameraGatewayService', 'info'], `clientConnectionStatus: ${clientConnectionStatus}, clientConnectionMessage: ${clientConnectionMessage}`);
+            this.server.log([moduleName, 'info'], `clientConnectionStatus: ${clientConnectionStatus}, clientConnectionMessage: ${clientConnectionMessage}`);
 
             deviceProvisionResult.clientConnectionStatus = clientConnectionStatus;
             deviceProvisionResult.clientConnectionMessage = clientConnectionMessage;
@@ -592,14 +594,14 @@ export class CameraGatewayService {
             deviceProvisionResult.dpsProvisionStatus = false;
             deviceProvisionResult.dpsProvisionMessage = `Error while provisioning device: ${ex.message}`;
 
-            this.server.log(['CameraGatewayService', 'error'], deviceProvisionResult.dpsProvisionMessage);
+            this.server.log([moduleName, 'error'], deviceProvisionResult.dpsProvisionMessage);
         }
 
         return deviceProvisionResult;
     }
 
     private async deprovisionDevice(deviceId: string): Promise<boolean> {
-        this.server.log(['CameraGatewayService', 'info'], `Deprovisioning device - id: ${deviceId}`);
+        this.server.log([moduleName, 'info'], `Deprovisioning device - id: ${deviceId}`);
 
         let result = false;
 
@@ -610,7 +612,7 @@ export class CameraGatewayService {
                 this.deviceMap.delete(deviceId);
             }
 
-            this.server.log(['CameraGatewayService', 'info'], `Deleting IoT Central device instance: ${deviceId}`);
+            this.server.log([moduleName, 'info'], `Deleting IoT Central device instance: ${deviceId}`);
             try {
                 await this.makeRequest(
                     `https://${this.iotCentralAppKeys.iotCentralAppHost}/api/preview/devices/${deviceId}`,
@@ -622,18 +624,18 @@ export class CameraGatewayService {
                         json: true
                     });
 
-                await this.server.settings.app.iotCentralModule.sendMeasurement({ [IotcCameraDeviceDiscoveryGatewayInterface.Event.DeleteCamera]: deviceId });
+                await this.server.settings.app.iotCentralModule.sendMeasurement({ [IOnvifCameraGateway.Event.DeleteCamera]: deviceId });
 
-                this.server.log(['CameraGatewayService', 'info'], `Succesfully de-provisioned device with id: ${deviceId}`);
+                this.server.log([moduleName, 'info'], `Succesfully de-provisioned device with id: ${deviceId}`);
 
                 result = true;
             }
             catch (ex) {
-                this.server.log(['CameraGatewayService', 'error'], `Requeset to delete the IoT Central device failed: ${ex.message}`);
+                this.server.log([moduleName, 'error'], `Requeset to delete the IoT Central device failed: ${ex.message}`);
             }
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Failed de-provision device: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Failed de-provision device: ${ex.message}`);
         }
 
         return result;
@@ -643,34 +645,41 @@ export class CameraGatewayService {
         return crypto.createHmac('SHA256', Buffer.from(masterKey, 'base64')).update(deviceId, 'utf8').digest('base64');
     }
 
-    private async restartCamera(timeout: number, reason: string): Promise<void> {
-        this.server.log(['CameraGatewayService', 'info'], `Camera restart requested...`);
+    private async restartCamera(timeout: number, reason: string): Promise<IDirectMethodResult> {
+        this.server.log([moduleName, 'info'], `Camera restart requested...`);
+
+        let rebootResult: IDirectMethodResult = {
+            status: 200,
+            message: '',
+            payload: {}
+        };
 
         try {
             await this.server.settings.app.iotCentralModule.sendMeasurement({
-                [IotcCameraDeviceDiscoveryGatewayInterface.Event.RestartCamera]: reason
+                [IOnvifCameraGateway.Event.RestartCamera]: reason
             });
 
-            const scanResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+            // wait here for the requested timeout
+            await sleep(timeout < 0 || timeout > 60 ? 5000 : timeout * 1000);
+
+            rebootResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
                 this.onvifModuleId,
-                'Restart',
-                {
-                    timeout: timeout < 0 || timeout > 60 ? 5000 : timeout * 1000
-                }
+                'Reboot',
+                {}
             );
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `${ex.message}`);
+            this.server.log([moduleName, 'error'], `${ex.message}`);
+
+            rebootResult.message = `Error while attempting to reboot the camera device: ${ex.message}`;
         }
 
-        // let Docker restart our container
-        this.server.log(['CameraGatewayService', 'info'], `Shutting down main process - module container will restart`);
-        process.exit(1);
+        return rebootResult;
     }
 
     @bind
     private async addCameraDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['CameraGatewayService', 'info'], `${IotcCameraDeviceDiscoveryGatewayInterface.Command.AddCamera} command received`);
+        this.server.log([moduleName, 'info'], `${IOnvifCameraGateway.Command.AddCamera} command received`);
 
         try {
             const cameraInfo: ICameraProvisionInfo = {
@@ -679,9 +688,7 @@ export class CameraGatewayService {
                 ipAddress: commandRequest?.payload?.[AddCameraRequestParams.IpAddress],
                 onvifUsername: commandRequest?.payload?.[AddCameraRequestParams.OnvifUsername],
                 onvifPassword: commandRequest?.payload?.[AddCameraRequestParams.OnvifPassword],
-                rtspUrl: commandRequest?.payload?.[AddCameraRequestParams.RtspUrl],
-                rtspAuthUsername: commandRequest?.payload?.[AddCameraRequestParams.RtspAuthUsername],
-                rtspAuthPassword: commandRequest?.payload?.[AddCameraRequestParams.RtspAuthPassword]
+                onvifMediaProfileToken: commandRequest?.payload?.[AddCameraRequestParams.OnvifMediaProfileToken]
             };
 
             if (!cameraInfo.deviceId
@@ -689,18 +696,11 @@ export class CameraGatewayService {
                 || !cameraInfo.ipAddress
                 || !cameraInfo.onvifUsername
                 || !cameraInfo.onvifPassword
-                || !cameraInfo.rtspUrl
-                || !cameraInfo.rtspAuthUsername
-                || !cameraInfo.rtspAuthPassword) {
-                await commandResponse.send(202);
-                await this.server.settings.app.iotCentralModule.updateModuleProperties({
-                    [IotcCameraDeviceDiscoveryGatewayInterface.Command.AddCamera]: {
-                        value: {
-                            [CommandResponseParams.StatusCode]: 202,
-                            [CommandResponseParams.Message]: `The ${IotcCameraDeviceDiscoveryGatewayInterface.Command.AddCamera} command is missing required parameters`,
-                            [CommandResponseParams.Data]: ''
-                        }
-                    }
+                || !cameraInfo.onvifMediaProfileToken) {
+                await commandResponse.send(200, {
+                    [CommandResponseParams.StatusCode]: 400,
+                    [CommandResponseParams.Message]: `The ${IOnvifCameraGateway.Command.AddCamera} command is missing required parameters`,
+                    [CommandResponseParams.Data]: ''
                 });
 
                 return;
@@ -708,36 +708,28 @@ export class CameraGatewayService {
 
             const provisionResult = await this.createCamera(cameraInfo);
 
-            await commandResponse.send(202);
-            await this.server.settings.app.iotCentralModule.updateModuleProperties({
-                [IotcCameraDeviceDiscoveryGatewayInterface.Command.AddCamera]: {
-                    value: {
-                        [CommandResponseParams.StatusCode]: 202,
-                        [CommandResponseParams.Message]: provisionResult.clientConnectionMessage || provisionResult.dpsProvisionMessage,
-                        [CommandResponseParams.Data]: ''
-                    }
-                }
+            await commandResponse.send(200, {
+                [CommandResponseParams.StatusCode]: 200,
+                [CommandResponseParams.Message]: provisionResult.clientConnectionMessage || provisionResult.dpsProvisionMessage,
+                [CommandResponseParams.Data]: ''
             });
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Error creating device: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error creating device: ${ex.message}`);
         }
     }
 
     @bind
     private async deleteCameraDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['CameraGatewayService', 'info'], `${IotcCameraDeviceDiscoveryGatewayInterface.Command.DeleteCamera} command received`);
+        this.server.log([moduleName, 'info'], `${IOnvifCameraGateway.Command.DeleteCamera} command received`);
 
         try {
             const deviceId = commandRequest?.payload?.[DeleteCameraRequestParams.DeviceId];
             if (!deviceId) {
-                await commandResponse.send(202);
-                await this.server.settings.app.iotCentralModule.updateModuleProperties({
-                    [IotcCameraDeviceDiscoveryGatewayInterface.Command.DeleteCamera]: {
-                        [CommandResponseParams.StatusCode]: 202,
-                        [CommandResponseParams.Message]: `The ${IotcCameraDeviceDiscoveryGatewayInterface.Command.DeleteCamera} command requires a Device Id parameter`,
-                        [CommandResponseParams.Data]: ''
-                    }
+                await commandResponse.send(200, {
+                    [CommandResponseParams.StatusCode]: 400,
+                    [CommandResponseParams.Message]: `The ${IOnvifCameraGateway.Command.DeleteCamera} command requires a Device Id parameter`,
+                    [CommandResponseParams.Data]: ''
                 });
 
                 return;
@@ -745,51 +737,47 @@ export class CameraGatewayService {
 
             const deleteResult = await this.deprovisionDevice(deviceId);
 
-            await commandResponse.send(202);
-            await this.server.settings.app.iotCentralModule.updateModuleProperties({
-                [IotcCameraDeviceDiscoveryGatewayInterface.Command.DeleteCamera]: {
-                    value: {
-                        [CommandResponseParams.StatusCode]: 202,
-                        [CommandResponseParams.Message]: deleteResult
-                            ? `The ${IotcCameraDeviceDiscoveryGatewayInterface.Command.DeleteCamera} command succeeded`
-                            : `An error occurred while executing the ${IotcCameraDeviceDiscoveryGatewayInterface.Command.DeleteCamera} command`,
-                        [CommandResponseParams.Data]: ''
-                    }
-                }
+            await commandResponse.send(200, {
+                [CommandResponseParams.StatusCode]: 200,
+                [CommandResponseParams.Message]: deleteResult
+                    ? `The ${IOnvifCameraGateway.Command.DeleteCamera} command succeeded`
+                    : `An error occurred while executing the ${IOnvifCameraGateway.Command.DeleteCamera} command`,
+                [CommandResponseParams.Data]: ''
             });
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Error deleting device: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error deleting device: ${ex.message}`);
         }
     }
 
     @bind
     private async restartCameraDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['CameraGatewayService', 'info'], `${IotcCameraDeviceDiscoveryGatewayInterface.Command.RestartCamera} command received`);
+        this.server.log([moduleName, 'info'], `${IOnvifCameraGateway.Command.RestartCamera} command received`);
+
+        let rebootResult: IDirectMethodResult = {
+            status: 200,
+            message: `An error occurred while trying to restart the camera device.`,
+            payload: {}
+        };
 
         try {
-            // sending response before processing, since this is a restart request
-            await commandResponse.send(202);
-            await this.server.settings.app.iotCentralModule.updateModuleProperties({
-                [IotcCameraDeviceDiscoveryGatewayInterface.Command.RestartCamera]: {
-                    value: {
-                        [CommandResponseParams.StatusCode]: 202,
-                        [CommandResponseParams.Message]: 'Received command to restart camera',
-                        [CommandResponseParams.Data]: ''
-                    }
-                }
-            });
-
-            await this.restartCamera(commandRequest?.payload?.[RestartCameraRequestParams.Timeout] || 0, 'RestartCamera command received');
+            rebootResult = await this.restartCamera(commandRequest?.payload?.[RestartCameraRequestParams.Timeout] || 0, 'RestartCamera command received');
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Error attempting to restart camera: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error attempting to restart camera: ${ex.message}`);
+            rebootResult.message = `Error attempting to restart camera: ${ex.message}`;
         }
+
+        await commandResponse.send(200, {
+            [CommandResponseParams.StatusCode]: rebootResult.status,
+            [CommandResponseParams.Message]: rebootResult.message,
+            [CommandResponseParams.Data]: ''
+        });
     }
 
     @bind
     private async scanForCamerasDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['CameraGatewayService', 'info'], `${IotcCameraDiscoveryInterface.Command.ScanForCameras} command received`);
+        this.server.log([moduleName, 'info'], `${IOnvifCameraDiscovery.Command.ScanForCameras} command received`);
 
         try {
             const scanTimeout = commandRequest?.payload?.[ScanForCamerasRequestParams.ScanTimeout] || 5;
@@ -802,25 +790,20 @@ export class CameraGatewayService {
                 }
             );
 
-            await commandResponse.send(202);
-            await this.server.settings.app.iotCentralModule.updateModuleProperties({
-                [IotcCameraDiscoveryInterface.Command.ScanForCameras]: {
-                    value: {
-                        [CommandResponseParams.StatusCode]: 202,
-                        [CommandResponseParams.Message]: scanResult.message,
-                        [CommandResponseParams.Data]: JSON.stringify(scanResult.payload, null, 4)
-                    }
-                }
+            await commandResponse.send(200, {
+                [CommandResponseParams.StatusCode]: 200,
+                [CommandResponseParams.Message]: scanResult.message,
+                [CommandResponseParams.Data]: JSON.stringify(scanResult.payload, null, 4)
             });
         }
         catch (ex) {
-            this.server.log(['CameraGatewayService', 'error'], `Error while scanning for devices: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error while scanning for devices: ${ex.message}`);
         }
     }
 
     @bind
     private async testOnvifDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['IoTCentralService', 'info'], `${IotcCameraDiscoveryInterface.Command.TestOnvif} command received`);
+        this.server.log(['IoTCentralService', 'info'], `${IOnvifCameraDiscovery.Command.TestOnvif} command received`);
 
         let testResult: IDirectMethodResult = {
             status: 200,
@@ -839,39 +822,29 @@ export class CameraGatewayService {
             this.server.log(['IoTCentralService', 'error'], testResult.message);
         }
 
-        await commandResponse.send(202);
-        await this.server.settings.app.iotCentralModule.updateModuleProperties({
-            [IotcCameraDiscoveryInterface.Command.TestOnvif]: {
-                value: {
-                    [CommandResponseParams.StatusCode]: 202,
-                    [CommandResponseParams.Message]: testResult.message,
-                    [CommandResponseParams.Data]: JSON.stringify(testResult.payload, null, 4)
-                }
-            }
+        await commandResponse.send(200, {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: testResult.message,
+            [CommandResponseParams.Data]: JSON.stringify(testResult.payload, null, 4)
         });
     }
 
     @bind
     private async restartModuleDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['IoTCentralService', 'info'], `${IotcCameraDeviceDiscoveryGatewayInterface.Command.RestartModule} command received`);
+        this.server.log(['IoTCentralService', 'info'], `${IOnvifCameraGateway.Command.RestartModule} command received`);
 
         try {
             // sending response before processing, since this is a restart request
-            await commandResponse.send(202);
-            await this.server.settings.app.iotCentralModule.updateModuleProperties({
-                [IotcCameraDeviceDiscoveryGatewayInterface.Command.RestartModule]: {
-                    value: {
-                        [CommandResponseParams.StatusCode]: 202,
-                        [CommandResponseParams.Message]: 'Received command to restart the module',
-                        [CommandResponseParams.Data]: ''
-                    }
-                }
+            await commandResponse.send(200, {
+                [CommandResponseParams.StatusCode]: 200,
+                [CommandResponseParams.Message]: 'Received command to restart the module',
+                [CommandResponseParams.Data]: ''
             });
 
             await this.restartModule(commandRequest?.payload?.[RestartModuleRequestParams.Timeout] || 0, 'RestartModule command received');
         }
         catch (ex) {
-            this.server.log(['IoTCentralService', 'error'], `Error sending response for ${IotcCameraDeviceDiscoveryGatewayInterface.Command.RestartModule} command: ${ex.message}`);
+            this.server.log(['IoTCentralService', 'error'], `Error sending response for ${IOnvifCameraGateway.Command.RestartModule} command: ${ex.message}`);
         }
     }
 

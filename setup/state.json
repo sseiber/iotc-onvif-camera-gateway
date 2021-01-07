@@ -14,7 +14,11 @@
             "iotCentralAppHost": "<IOT_CENTRAL_HOST>",
             "iotCentralAppApiToken": "<IOT_CENTRAL_API_ACCESS_TOKEN>",
             "iotCentralDeviceProvisioningKey": "<IOT_CENTRAL_DEVICE_PROVISIONING_KEY>",
-            "iotCentralScopeId": "<IOT_CENTRAL_SCOPE_ID>"
+            "iotCentralScopeId": "<IOT_CENTRAL_SCOPE_ID>",
+            "azureBlobHostUrl": "<BLOB_STORE_ENDPOINT>",
+            "azureBlobContainer": "<BLOB_STORE_CONTAINER_NAME>",
+            "azureBlobAccountName": "<BLOB_STORE_ACCOUNT_NAME>",
+            "azureBlobAccountKey": "<BLOB_STORE_ACCOUNT_ACCESS_KEY>"
         }
     }
 }

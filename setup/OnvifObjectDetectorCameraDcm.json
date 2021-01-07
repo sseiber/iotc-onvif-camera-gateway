@@ -287,25 +287,9 @@
             {
                 "@type": "Property",
                 "displayName": {
-                    "en": "RTSP Url"
+                    "en": "Onvif Media Profile Token"
                 },
-                "name": "rpRtspUrl",
-                "schema": "string"
-            },
-            {
-                "@type": "Property",
-                "displayName": {
-                    "en": "RTSP Auth Username"
-                },
-                "name": "rpRtspAuthUsername",
-                "schema": "string"
-            },
-            {
-                "@type": "Property",
-                "displayName": {
-                    "en": "RTSP Auth Password"
-                },
-                "name": "rpRtspAuthPassword",
+                "name": "rpOnvifMediaProfileToken",
                 "schema": "string"
             },
             {

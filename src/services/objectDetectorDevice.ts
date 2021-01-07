@@ -8,7 +8,10 @@ import {
 } from './inferenceProcessor';
 import { HealthState } from './health';
 import { IDirectMethodResult } from '../plugins/iotCentral';
-import { ICameraProvisionInfo } from './cameraGateway';
+import {
+    IIoTCentralAppKeys,
+    ICameraProvisionInfo
+} from './cameraGateway';
 import { Mqtt } from 'azure-iot-device-mqtt';
 import {
     Client as IoTDeviceClient,
@@ -17,18 +20,30 @@ import {
     DeviceMethodRequest,
     DeviceMethodResponse
 } from 'azure-iot-device';
+import {
+    BlobServiceClient,
+    StorageSharedKeyCredential
+} from '@azure/storage-blob';
 import * as moment from 'moment';
 import { join as pathJoin } from 'path';
 import { URL } from 'url';
 import { Readable } from 'stream';
 import { bind, defer, emptyObj } from '../utils';
 
+const moduleName = 'ObjectDetectorDevice';
+
 export interface IClientConnectResult {
     clientConnectionStatus: boolean;
     clientConnectionMessage: string;
 }
 
-export const ICameraInformationInterface = {
+export interface IObjectDetectorCreateOptions {
+    cameraInfo: ICameraProvisionInfo;
+    onvifModuleId: string;
+    appKeys: IIoTCentralAppKeys;
+}
+
+export const ICameraInformation = {
     Property: {
         Manufacturer: 'rpManufacturer',
         Model: 'rpModel',
@@ -49,7 +64,7 @@ enum ObjectDetectorSettings {
     InferenceTimeout = 'wpInferenceTimeout'
 }
 
-interface ICameraDevicesettings {
+interface ICameraDeviceSettings {
     [CameraDeviceSettings.DebugTelemetry]: boolean;
 }
 
@@ -98,9 +113,7 @@ export const ICameraDeviceInterface = {
         IpAddress: 'rpIpAddress',
         OnvifUsername: 'rpOnvifUsername',
         OnvifPassword: 'rpOnvifPassword',
-        RtspUrl: 'rpRtspUrl',
-        RtspAuthUsername: 'rpRtspAuthUsername',
-        RtspAuthPassword: 'rpRtspAuthPassword'
+        OnvifMediaProfileToken: 'rpOnvifMediaProfileToken'
     },
     Setting: {
         DebugTelemetry: CameraDeviceSettings.DebugTelemetry
@@ -111,7 +124,7 @@ export const ICameraDeviceInterface = {
         CaptureImage: 'cmCaptureImage',
         RestartCamera: 'cmRestartCamera'
     }
-}
+};
 
 export const IObjectDetectorInterface = {
     Telemetry: {
@@ -141,11 +154,14 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private server: Server;
     private cameraInfo: ICameraProvisionInfo;
     private onvifModuleId: string;
+    private appKeys: IIoTCentralAppKeys;
+    private blobStorageSharedKeyCredential: StorageSharedKeyCredential;
+    private blobStorageServiceClient: BlobServiceClient;
     private deviceClient: IoTDeviceClient = null;
     private deviceTwin: Twin = null;
     private deferredStart = defer();
     private healthState = HealthState.Good;
-    private cameraDevicesettings: ICameraDevicesettings = {
+    private cameraDevicesettings: ICameraDeviceSettings = {
         [CameraDeviceSettings.DebugTelemetry]: false
     };
     private objectDetectorSettings: IObjectDetectorSettings = {
@@ -156,15 +172,30 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     };
     private detectionClasses: string[] = this.objectDetectorSettings[ObjectDetectorSettings.DetectionClasses].toUpperCase().split(',');
     private inferenceProcessor: InferenceProcessorService;
+    private rtspStreamUri: string = '';
 
-    constructor(server: Server, cameraInfo: ICameraProvisionInfo, onvifModuleId: string) {
+    constructor(server: Server, options: IObjectDetectorCreateOptions) {
         this.server = server;
-        this.cameraInfo = cameraInfo;
-        this.onvifModuleId = onvifModuleId;
+        this.cameraInfo = options.cameraInfo;
+        this.onvifModuleId = options.onvifModuleId;
+        this.appKeys = options.appKeys;
     }
 
     public async init() {
-        this.server.log(['ObjectDetectorDevice', 'info'], 'initialize');
+        this.server.log([moduleName, 'info'], 'initialize');
+
+        try {
+            this.server.log([moduleName, 'info'], `Creating blob storage shared key credential`);
+
+            this.blobStorageSharedKeyCredential = new StorageSharedKeyCredential(this.appKeys.azureBlobAccountName, this.appKeys.azureBlobAccountKey);
+
+            this.server.log([moduleName, 'info'], `Creating blob storage client`);
+
+            this.blobStorageServiceClient = new BlobServiceClient(this.appKeys.azureBlobHostUrl, this.blobStorageSharedKeyCredential);
+        }
+        catch (ex) {
+            this.server.log([moduleName, 'error'], `Error creating the blob storage service shared key and client: ${ex.message}`);
+        }
     }
 
     public get id(): string {
@@ -189,7 +220,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     }
 
     public async deleteCamera(): Promise<void> {
-        this.server.log(['ObjectDetectorDevice', 'info'], `Deleting device instance for deviceId: ${this.cameraInfo.deviceId}`);
+        this.server.log([moduleName, 'info'], `Deleting device instance for deviceId: ${this.cameraInfo.deviceId}`);
 
         try {
             const clientInterface = this.deviceClient;
@@ -201,7 +232,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             });
         }
         catch (ex) {
-            this.server.log(['ObjectDetectorDevice', 'error'], `Error while deleting device: ${this.cameraInfo.deviceId}`);
+            this.server.log([moduleName, 'error'], `Error while deleting device: ${this.cameraInfo.deviceId}`);
         }
     }
 
@@ -224,7 +255,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             result.clientConnectionStatus = false;
             result.clientConnectionMessage = 'An error occurred while tryig to connect to the client interface';
 
-            this.server.log(['ObjectDetectorDevice', 'error'], result.clientConnectionMessage);
+            this.server.log([moduleName, 'error'], result.clientConnectionMessage);
         }
 
         return result;
@@ -242,11 +273,11 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             await this.deviceClient.sendEvent(iotcMessage);
 
             if (this.debugTelemetry() === true) {
-                this.server.log(['ObjectDetectorDevice', 'info'], `sendEvent: ${JSON.stringify(data, null, 4)}`);
+                this.server.log([moduleName, 'info'], `sendEvent: ${JSON.stringify(data, null, 4)}`);
             }
         }
         catch (ex) {
-            this.server.log(['ObjectDetectorDevice', 'error'], `sendMeasurement: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `sendMeasurement: ${ex.message}`);
         }
     }
 
@@ -259,7 +290,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             await this.sendMeasurement(inferenceTelemetryData);
         }
         catch (ex) {
-            this.server.log(['ObjectDetectorDevice', 'error'], `sendInferenceData: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `sendInferenceData: ${ex.message}`);
         }
     }
 
@@ -280,15 +311,59 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             });
 
             if (this.debugTelemetry() === true) {
-                this.server.log(['ObjectDetectorDevice', 'info'], `Device properties updated: ${JSON.stringify(properties, null, 4)}`);
+                this.server.log([moduleName, 'info'], `Device properties updated: ${JSON.stringify(properties, null, 4)}`);
             }
         }
         catch (ex) {
-            this.server.log(['ObjectDetectorDevice', 'error'], `Error updating device properties: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error updating device properties: ${ex.message}`);
         }
     }
 
     public async uploadContent(data: Buffer): Promise<string> {
+        let imageUrl = '';
+
+        try {
+            this.server.log([moduleName, 'info'], `Preparing to upload image content to blob storage container`);
+
+            const containerClient = this.blobStorageServiceClient.getContainerClient(this.appKeys.azureBlobContainer);
+            const blobName = `${moment.utc().format('YYYYMMDD-HHmmss')}.jpg`;
+            const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+            const blobContentPath = `${this.appKeys.azureBlobHostUrl}${this.appKeys.azureBlobContainer}${blobName}`;
+
+            this.server.log([moduleName, 'info'], `Blob storage content path: ${blobContentPath}`);
+
+            const readableStream = new Readable({
+                read() {
+                    this.push(data);
+                    this.push(null);
+                }
+            });
+
+            const uploadOptions = {
+                blobHTTPHeaders: {
+                    blobContentType: 'image/jpeg'
+                }
+            };
+
+            const uploadResponse = await blockBlobClient.uploadStream(readableStream, data.length, 5, uploadOptions);
+
+            if (uploadResponse?._response.status === 200) {
+                this.server.log([moduleName, 'info'], `Success: status: ${uploadResponse?._response.status}, code: ${uploadResponse.errorCode}`);
+
+                imageUrl = blobContentPath;
+            }
+            else {
+                this.server.log([moduleName, 'info'], `Error while uploading content to blob storage - status: ${uploadResponse?._response.status}, code: ${uploadResponse.errorCode}`);
+            }
+        }
+        catch (ex) {
+            this.server.log([moduleName, 'error'], `Error while uploading content to blob storage container: ${ex.message}`);
+        }
+
+        return imageUrl;
+    }
+
+    public async uploadContentWithHubClient(data: Buffer): Promise<string> {
         if (!data) {
             return '';
         }
@@ -298,7 +373,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         try {
             const blobName = `${moment.utc().format('YYYYMMDD-HHmmss')}.jpg`;
 
-            this.server.log(['ObjectDetectorDevice', 'info'], `uploadContent - data length: ${data.length}, blobName: ${blobName}`);
+            this.server.log([moduleName, 'info'], `uploadContent - data length: ${data.length}, blobName: ${blobName}`);
 
             const readableStream = new Readable({
                 read() {
@@ -321,7 +396,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             });
         }
         catch (ex) {
-            this.server.log(['ObjectDetectorDevice', 'error'], `Error during deviceClient.uploadToBlob: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error during deviceClient.uploadToBlob: ${ex.message}`);
         }
 
         return imageUrl;
@@ -349,15 +424,15 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                 requestParams);
 
             deviceProperties = {
-                [ICameraInformationInterface.Property.Manufacturer]: deviceInfoResult.payload.Manufacturer || '',
-                [ICameraInformationInterface.Property.Model]: deviceInfoResult.payload.Model || '',
-                [ICameraInformationInterface.Property.FirmwareVersion]: deviceInfoResult.payload.Firmware || '',
-                [ICameraInformationInterface.Property.HardwareId]: deviceInfoResult.payload.HardwareId,
-                [ICameraInformationInterface.Property.SerialNumber]: deviceInfoResult.payload.SerialNumber
+                [ICameraInformation.Property.Manufacturer]: deviceInfoResult.payload.Manufacturer || '',
+                [ICameraInformation.Property.Model]: deviceInfoResult.payload.Model || '',
+                [ICameraInformation.Property.FirmwareVersion]: deviceInfoResult.payload.Firmware || '',
+                [ICameraInformation.Property.HardwareId]: deviceInfoResult.payload.HardwareId,
+                [ICameraInformation.Property.SerialNumber]: deviceInfoResult.payload.SerialNumber
             };
         }
         catch (ex) {
-            this.server.log(['ModuleService', 'error'], `Error while in testOnvif handler: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error while in testOnvif handler: ${ex.message}`);
         }
 
         return deviceProperties;
@@ -390,7 +465,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             result.clientConnectionStatus = false;
             result.clientConnectionMessage = `Failed to instantiate client interface from configuraiton: ${ex.message}`;
 
-            this.server.log(['ObjectDetectorDevice', 'error'], `${result.clientConnectionMessage}`);
+            this.server.log([moduleName, 'error'], `${result.clientConnectionMessage}`);
         }
 
         if (result.clientConnectionStatus === false) {
@@ -400,7 +475,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         try {
             await this.deviceClient.open();
 
-            this.server.log(['ObjectDetectorDevice', 'info'], `Client is connected`);
+            this.server.log([moduleName, 'info'], `Client is connected`);
 
             this.deviceTwin = await this.deviceClient.getTwin();
             this.deviceTwin.on('properties.desired', this.onHandleDeviceProperties);
@@ -412,7 +487,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             this.deviceClient.onDeviceMethod(ICameraDeviceInterface.Command.CaptureImage, this.captureImageDirectMethod);
             this.deviceClient.onDeviceMethod(ICameraDeviceInterface.Command.RestartCamera, this.restartCameraDirectMethod);
 
-            this.server.log(['ObjectDetectorDevice', 'info'], `IoT Central successfully connected device: ${this.cameraInfo.deviceId}`);
+            this.server.log([moduleName, 'info'], `IoT Central successfully connected device: ${this.cameraInfo.deviceId}`);
 
             result.clientConnectionStatus = true;
         }
@@ -420,14 +495,14 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             result.clientConnectionStatus = false;
             result.clientConnectionMessage = `IoT Central connection error: ${ex.message}`;
 
-            this.server.log(['ObjectDetectorDevice', 'error'], result.clientConnectionMessage);
+            this.server.log([moduleName, 'error'], result.clientConnectionMessage);
         }
 
         return result;
     }
 
     private async deviceReady(): Promise<IClientConnectResult> {
-        this.server.log(['ObjectDetectorDevice', 'info'], `Device ready`);
+        this.server.log([moduleName, 'info'], `Device ready`);
 
         const result: IClientConnectResult = {
             clientConnectionStatus: false,
@@ -443,9 +518,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                 [ICameraDeviceInterface.Property.IpAddress]: this.cameraInfo.ipAddress,
                 [ICameraDeviceInterface.Property.OnvifUsername]: this.cameraInfo.onvifUsername,
                 [ICameraDeviceInterface.Property.OnvifPassword]: this.cameraInfo.onvifPassword,
-                [ICameraDeviceInterface.Property.RtspUrl]: this.cameraInfo.rtspUrl,
-                [ICameraDeviceInterface.Property.RtspAuthUsername]: this.cameraInfo.rtspAuthUsername,
-                [ICameraDeviceInterface.Property.RtspAuthPassword]: this.cameraInfo.rtspAuthPassword
+                [ICameraDeviceInterface.Property.OnvifMediaProfileToken]: this.cameraInfo.onvifMediaProfileToken
             });
 
             await this.sendMeasurement({
@@ -458,13 +531,13 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             result.clientConnectionStatus = false;
             result.clientConnectionMessage = ex.message;
 
-            this.server.log(['ObjectDetectorDevice', 'error'], result.clientConnectionMessage);
+            this.server.log([moduleName, 'error'], result.clientConnectionMessage);
         }
 
         return result;
     }
 
-    private async captureImage(mediaProfileToken: string): Promise<IDirectMethodResult> {
+    private async captureImage(): Promise<IDirectMethodResult> {
         let serviceResult: IDirectMethodResult = {
             status: 200,
             message: '',
@@ -476,7 +549,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                 Address: this.cameraInfo.ipAddress,
                 Username: this.cameraInfo.onvifUsername,
                 Password: this.cameraInfo.onvifPassword,
-                MediaProfileToken: mediaProfileToken
+                MediaProfileToken: this.cameraInfo.onvifMediaProfileToken
             };
 
             serviceResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
@@ -488,7 +561,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         }
         catch (ex) {
             serviceResult.message = ex.message;
-            this.server.log(['ObjectDetectorDevice', 'error'], `An error occurred while attempting to capture an image on device: ${this.cameraInfo.deviceId}: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `An error occurred while attempting to capture an image on device: ${this.cameraInfo.deviceId}: ${ex.message}`);
         }
 
         return serviceResult;
@@ -517,7 +590,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         }
         catch (ex) {
             serviceResult.message = ex.message;
-            this.server.log(['ObjectDetectorDevice', 'error'], `An error occurred while attempting send reboot command to device: ${this.cameraInfo.deviceId}: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `An error occurred while attempting send reboot command to device: ${this.cameraInfo.deviceId}: ${ex.message}`);
         }
 
         return serviceResult;
@@ -531,18 +604,49 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         }
     }
 
+    private async getOnvifRtspStreamUri(): Promise<string> {
+        let rtspStreamUri = '';
+
+        try {
+            let streamUriResult: IDirectMethodResult = {
+                status: 200,
+                message: '',
+                payload: {}
+            };
+
+            const requestParams = {
+                Address: this.cameraInfo.ipAddress,
+                Username: this.cameraInfo.onvifUsername,
+                Password: this.cameraInfo.onvifPassword,
+                MediaProfileToken: this.cameraInfo.onvifMediaProfileToken
+            };
+
+            streamUriResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+                this.onvifModuleId,
+                'GetRTSPStreamURI',
+                requestParams);
+
+            rtspStreamUri = streamUriResult.payload;
+        }
+        catch (ex) {
+            this.server.log([moduleName, 'error'], `Error while in testOnvif handler: ${ex.message}`);
+        }
+
+        return rtspStreamUri;
+    }
+
     @bind
     private onDeviceClientError(error: Error) {
-        this.server.log(['ObjectDetectorDevice', 'error'], `Device client connection error: ${error.message}`);
+        this.server.log([moduleName, 'error'], `Device client connection error: ${error.message}`);
         this.healthState = HealthState.Critical;
     }
 
     @bind
     private async onHandleDeviceProperties(desiredChangedSettings: any) {
         try {
-            this.server.log(['ObjectDetectorDevice', 'info'], `onHandleDeviceProperties`);
+            this.server.log([moduleName, 'info'], `onHandleDeviceProperties`);
             if (this.debugTelemetry() === true) {
-                this.server.log(['ObjectDetectorDevice', 'info'], `desiredChangedSettings:\n${JSON.stringify(desiredChangedSettings, null, 4)}`);
+                this.server.log([moduleName, 'info'], `desiredChangedSettings:\n${JSON.stringify(desiredChangedSettings, null, 4)}`);
             }
 
             const patchedProperties = {};
@@ -585,7 +689,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                         break;
 
                     default:
-                        this.server.log(['ObjectDetectorDevice', 'error'], `Received desired property change for unknown setting '${setting}'`);
+                        this.server.log([moduleName, 'error'], `Received desired property change for unknown setting '${setting}'`);
                         break;
                 }
             }
@@ -595,7 +699,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             }
         }
         catch (ex) {
-            this.server.log(['ObjectDetectorDevice', 'error'], `Exception while handling desired properties: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Exception while handling desired properties: ${ex.message}`);
         }
 
         this.deferredStart.resolve();
@@ -604,7 +708,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     @bind
     // @ts-ignore (commandRequest)
     private async startImageProcessingDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['ObjectDetectorDevice', 'info'], `Received device command: ${ICameraDeviceInterface.Command.StartImageProcessing}`);
+        this.server.log([moduleName, 'info'], `Received device command: ${ICameraDeviceInterface.Command.StartImageProcessing}`);
 
         if (this.inferenceProcessor) {
             await this.inferenceProcessor.stopInferenceProcessor();
@@ -620,95 +724,64 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             this.objectDetectorSettings[ObjectDetectorSettings.ConfidenceThreshold],
             this.objectDetectorSettings[ObjectDetectorSettings.InferenceTimeout]);
 
-        const rtspUrl = new URL(this.cameraInfo.rtspUrl);
-        rtspUrl.username = this.cameraInfo.rtspAuthUsername;
-        rtspUrl.password = this.cameraInfo.rtspAuthPassword;
+        if (!this.rtspStreamUri) {
+            this.rtspStreamUri = await this.getOnvifRtspStreamUri();
+        }
+
+        const rtspUrl = new URL(this.rtspStreamUri);
+        rtspUrl.username = this.cameraInfo.onvifUsername;
+        rtspUrl.password = this.cameraInfo.onvifPassword;
 
         await this.inferenceProcessor.startInferenceProcessor(rtspUrl.href);
 
-        await commandResponse.send(202);
-        await this.updateDeviceProperties({
-            [ICameraDeviceInterface.Command.StartImageProcessing]: {
-                value: {
-                    [CommandResponseParams.StatusCode]: 202,
-                    [CommandResponseParams.Message]: `Received ${ICameraDeviceInterface.Command.StartImageProcessing} command for deviceId: ${this.cameraInfo.deviceId}`,
-                    [CommandResponseParams.Data]: ''
-                }
-            }
+        await commandResponse.send(200, {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: `Received ${ICameraDeviceInterface.Command.StartImageProcessing} command for deviceId: ${this.cameraInfo.deviceId}`,
+            [CommandResponseParams.Data]: ''
         });
     }
 
     @bind
     // @ts-ignore (commandRequest)
     private async stopImageProcessingDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['ObjectDetectorDevice', 'info'], `Received device command: ${ICameraDeviceInterface.Command.StopImageProcessing}`);
+        this.server.log([moduleName, 'info'], `Received device command: ${ICameraDeviceInterface.Command.StopImageProcessing}`);
 
         await this.stopImageProcessor();
 
-        await commandResponse.send(202);
-        await this.updateDeviceProperties({
-            [ICameraDeviceInterface.Command.StopImageProcessing]: {
-                value: {
-                    [CommandResponseParams.StatusCode]: 202,
-                    [CommandResponseParams.Message]: `Received ${ICameraDeviceInterface.Command.StopImageProcessing} command for deviceId: ${this.cameraInfo.deviceId}`,
-                    [CommandResponseParams.Data]: ''
-                }
-            }
+        await commandResponse.send(200, {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: `Received ${ICameraDeviceInterface.Command.StopImageProcessing} command for deviceId: ${this.cameraInfo.deviceId}`,
+            [CommandResponseParams.Data]: ''
         });
     }
 
     @bind
     // @ts-ignore (commandRequest)
     private async captureImageDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['ObjectDetectorDevice', 'info'], `Received device command: ${ICameraDeviceInterface.Command.CaptureImage}`);
+        this.server.log([moduleName, 'info'], `Received device command: ${ICameraDeviceInterface.Command.CaptureImage}`);
 
-        if (!this.inferenceProcessor) {
-            await commandResponse.send(202);
-            await this.updateDeviceProperties({
-                [ICameraDeviceInterface.Command.CaptureImage]: {
-                    value: {
-                        [CommandResponseParams.StatusCode]: 202,
-                        [CommandResponseParams.Message]: `Unable to capture image. Image processing is not active`,
-                        [CommandResponseParams.Data]: ''
-                    }
-                }
-            });
+        const serviceResult = await this.captureImage();
 
-            return;
-        }
-
-        const serviceResult = await this.captureImage('profile_1_h264');
-
-        await commandResponse.send(202);
-        await this.updateDeviceProperties({
-            [ICameraDeviceInterface.Command.CaptureImage]: {
-                value: {
-                    [CommandResponseParams.StatusCode]: 202,
-                    [CommandResponseParams.Message]: serviceResult.message,
-                    [CommandResponseParams.Data]: ''
-                }
-            }
+        await commandResponse.send(200, {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: serviceResult.message,
+            [CommandResponseParams.Data]: ''
         });
     }
 
     @bind
     // @ts-ignore (commandRequest)
     private async restartCameraDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['ObjectDetectorDevice', 'info'], `Received device command: ${ICameraDeviceInterface.Command.RestartCamera}`);
+        this.server.log([moduleName, 'info'], `Received device command: ${ICameraDeviceInterface.Command.RestartCamera}`);
 
         await this.stopImageProcessor();
 
         await this.restartCamera();
 
-        await commandResponse.send(202);
-        await this.updateDeviceProperties({
-            [ICameraDeviceInterface.Command.RestartCamera]: {
-                value: {
-                    [CommandResponseParams.StatusCode]: 202,
-                    [CommandResponseParams.Message]: `Restart request sent to camera device: ${this.cameraInfo.deviceId}`,
-                    [CommandResponseParams.Data]: ''
-                }
-            }
+        await commandResponse.send(200, {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: `Restart request sent to camera device: ${this.cameraInfo.deviceId}`,
+            [CommandResponseParams.Data]: ''
         });
     }
 }
