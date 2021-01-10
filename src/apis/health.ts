@@ -1,5 +1,5 @@
 import { inject, RoutePlugin, route } from 'spryly';
-import { Request, ResponseToolkit } from '@hapi/hapi';
+import { Request, ResponseObject, ResponseToolkit } from '@hapi/hapi';
 import { HealthService } from '../services/health';
 import {
     badRequest as boom_badRequest
@@ -18,8 +18,8 @@ export class HealthRoutes extends RoutePlugin {
             auth: false
         }
     })
-    // @ts-ignore (request)
-    public async getHealth(request: Request, h: ResponseToolkit) {
+    // @ts-ignore
+    public async getHealth(request: Request, h: ResponseToolkit): Promise<ResponseObject> {
         try {
             const healthState = await this.health.checkHealthState();
 

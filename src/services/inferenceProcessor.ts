@@ -15,15 +15,15 @@ export interface IObjectInference {
     type: string;
     entity: {
         box: {
-            l: number,
-            t: number,
-            w: number,
-            h: number
-        },
+            l: number;
+            t: number;
+            w: number;
+            h: number;
+        };
         tag: {
             confidence: number;
-            value: string
-        }
+            value: string;
+        };
     };
 }
 

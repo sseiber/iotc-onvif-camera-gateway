@@ -35,10 +35,10 @@ const composeOptions: ComposeOptions = {
 };
 
 // process.on('unhandledRejection', (e: any) => {
-//     // tslint:disable:no-console
+/* eslint-disable */
 //     console.log(['startup', 'error'], `Excepction on startup... ${e.message}`);
 //     console.log(['startup', 'error'], e.stack);
-//     // tslint:enable:no-console
+/* eslint-enable */
 // });
 
 async function start() {
@@ -67,7 +67,7 @@ async function start() {
             `freemem=${(osFreeMem() / 1024 / 1024).toFixed(0)}mb, totalmem=${(osTotalMem() / 1024 / 1024).toFixed(0)}mb`);
     }
     catch (error) {
-        // tslint:disable-next-line:no-console
+        // eslint-disable-next-line no-console
         console.log(`['startup', 'error'], 👹 Error starting server: ${error.message}`);
     }
 }

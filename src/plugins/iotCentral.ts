@@ -67,12 +67,24 @@ export const iotCentralModulePlugin: Plugin<any> = {
         const iotCentralPlugin: IIoTCentralModule = {
             moduleId: process.env.IOTEDGE_MODULEID || '',
             deviceId: process.env.IOTEDGE_DEVICEID || '',
-            getModuleClient: () => null,
-            debugTelemetry: () => false,
-            sendMeasurement: async () => null,
-            updateModuleProperties: async () => null,
-            addDirectMethod: () => null,
-            invokeDirectMethod: async () => null
+            getModuleClient: (): ModuleClient => {
+                return null;
+            },
+            debugTelemetry: (): boolean => {
+                return false;
+            },
+            sendMeasurement: async (): Promise<void> => {
+                return;
+            },
+            updateModuleProperties: async (): Promise<void> => {
+                return;
+            },
+            addDirectMethod: () => {
+                return;
+            },
+            invokeDirectMethod: async (): Promise<IDirectMethodResult> => {
+                return;
+            }
         };
 
         server.settings.app.iotCentralModule = iotCentralPlugin;
@@ -133,7 +145,7 @@ export class IotCentralModule {
     }
 
     @bind
-    public debugTelemetry() {
+    public debugTelemetry(): boolean {
         return this.options.debugTelemetry();
     }
 
@@ -184,7 +196,7 @@ export class IotCentralModule {
     }
 
     @bind
-    public addDirectMethod(directMethodName: string, directMethodFunction: DirectMethodFunction) {
+    public addDirectMethod(directMethodName: string, directMethodFunction: DirectMethodFunction): void {
         if (!this.moduleClient) {
             return;
         }

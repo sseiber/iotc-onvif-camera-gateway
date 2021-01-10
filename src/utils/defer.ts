@@ -5,7 +5,7 @@ class DeferredPromise {
     public reject: any;
     private promiseInternal: any;
 
-    public constructor() {
+    constructor() {
         this.promiseInternal = new Promise((resolve, reject) => {
             this.resolve = resolve;
             this.reject = reject;
@@ -19,6 +19,6 @@ class DeferredPromise {
     }
 }
 
-export function defer() {
+export function defer(): DeferredPromise {
     return new DeferredPromise();
 }

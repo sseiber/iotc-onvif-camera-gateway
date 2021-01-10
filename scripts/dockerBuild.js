@@ -1,4 +1,3 @@
-// tslint:disable:no-console
 const childProcess = require('child_process');
 const os = require('os');
 const path = require('path');
@@ -12,6 +11,11 @@ const processArgs = require('commander')
     .parse(process.argv);
 
 const workspaceRootFolder = processArgs.workspaceRoot || process.cwd();
+
+function log(message) {
+    // eslint-disable-next-line no-console
+    console.log(message);
+}
 
 async function execDockerBuild(dockerArch, dockerImage) {
     const dockerArgs = [
@@ -45,9 +49,10 @@ async function start() {
         const dockerArch = imageConfig.arch || '';
         const dockerImage = `${imageConfig.imageName}:${dockerVersion}-${dockerArch}`;
 
-        console.log(`Docker image: ${dockerImage}`);
-        console.log(`Platform: ${os.type()}`);
-    
+        log(`Docker image: ${dockerImage}`);
+
+        log(`Platform: ${os.type()}`);
+
         if (processArgs.dockerBuild) {
             await execDockerBuild(dockerArch, dockerImage);
         }
@@ -59,15 +64,15 @@ async function start() {
         buildFailed = true;
     } finally {
         if (!buildFailed) {
-            console.log(`Operation complete`);
+            log(`Operation complete`);
         }
     }
 
     if (buildFailed) {
-        console.log(`Operation failed, see errors above`);
+        log(`Operation failed, see errors above`);
+
         process.exit(-1);
     }
 }
 
 start();
-// tslint:enable:no-console

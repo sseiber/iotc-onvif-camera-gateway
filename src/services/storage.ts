@@ -17,7 +17,7 @@ export class StorageService {
     private setupDone = false;
     private storageDirectory: string;
 
-    public async init() {
+    public async init(): Promise<void> {
         this.server.log([moduleName, 'info'], 'initialize');
 
         this.storageDirectory = this.server.settings.app.storageRootDirectory;
@@ -48,7 +48,7 @@ export class StorageService {
         return _get(obj, property);
     }
 
-    public async set(scope: string, property: any, value?: any) {
+    public async set(scope: string, property: any, value?: any): Promise<void> {
         if (!value) {
             value = property;
             property = ROOT;
@@ -63,7 +63,7 @@ export class StorageService {
         this.writeScope(scope, finalObject);
     }
 
-    public async flush(scope: string, property: string, value?: any) {
+    public async flush(scope: string, property: string, value?: any): Promise<void> {
         if (!value) {
             value = property;
             property = ROOT;

@@ -173,10 +173,10 @@ export const IOnvifCameraDiscovery = {
     }
 };
 
-const defaultHealthCheckRetries: number = 3;
-const defaultDpsProvisioningHost: string = 'global.azure-devices-provisioning.net';
-const defaultLeafDeviceModelId: string = 'dtmi:com:iotcentral:model:OnvifObjectDetectorCamera;1';
-const defaultLeafDeviceInterfaceInstanceName: string = 'com_iotcentral_OnvifObjectDetectorCamera_CameraDevice';
+const defaultHealthCheckRetries = 3;
+const defaultDpsProvisioningHost = 'global.azure-devices-provisioning.net';
+const defaultLeafDeviceModelId = 'dtmi:com:iotcentral:model:OnvifObjectDetectorCamera;1';
+const defaultLeafDeviceInterfaceInstanceName = 'com_iotcentral_OnvifObjectDetectorCamera_CameraDevice';
 
 @service('cameraGateway')
 export class CameraGatewayService {
@@ -186,10 +186,10 @@ export class CameraGatewayService {
     @inject('storage')
     private storage: StorageService;
 
-    private onvifModuleId: string = '';
+    private onvifModuleId = '';
     private healthCheckRetries: number = defaultHealthCheckRetries;
     private healthState = HealthState.Good;
-    private healthCheckFailStreak: number = 0;
+    private healthCheckFailStreak = 0;
     private moduleSettings: IOnvifCameraGatewaySettings = {
         [OnvifCameraGatewaySettings.DebugTelemetry]: false
     };
@@ -208,7 +208,7 @@ export class CameraGatewayService {
     private leafDeviceModelId: string = defaultLeafDeviceModelId;
     private leafDeviceInterfaceInstanceName: string = defaultLeafDeviceInterfaceInstanceName;
 
-    public async init() {
+    public async init(): Promise<void> {
         this.server.log([moduleName, 'info'], 'initialize');
     }
 
@@ -218,7 +218,7 @@ export class CameraGatewayService {
     }
 
     @bind
-    public async onHandleModuleProperties(desiredChangedSettings: any) {
+    public async onHandleModuleProperties(desiredChangedSettings: any): Promise<void> {
         try {
             this.server.log([moduleName, 'info'], `onHandleModuleProperties`);
             if (this.debugTelemetry() === true) {
@@ -228,7 +228,7 @@ export class CameraGatewayService {
             const patchedProperties = {};
 
             for (const setting in desiredChangedSettings) {
-                if (!desiredChangedSettings.hasOwnProperty(setting)) {
+                if (!Object.prototype.hasOwnProperty.call(desiredChangedSettings, setting)) {
                     continue;
                 }
 
@@ -259,8 +259,9 @@ export class CameraGatewayService {
     }
 
     @bind
-    // @ts-ignore (error)
-    public onModuleClientError(error: Error) {
+    public onModuleClientError(error: Error): void {
+        this.server.log([moduleName, 'error'], `onModuleError: ${error.message}`);
+
         this.healthState = HealthState.Critical;
     }
 
@@ -876,16 +877,14 @@ export class CameraGatewayService {
             if (iotcApiResponse.res.statusCode < 200 || iotcApiResponse.res.statusCode > 299) {
                 this.server.log(['IoTCentralService', 'error'], `Response status code = ${iotcApiResponse.res.statusCode}`);
 
-                throw ({
-                    message: (iotcApiResponse.payload as any)?.message || iotcApiResponse.payload || 'An error occurred',
-                    statusCode: iotcApiResponse.res.statusCode
-                });
+                throw new Error((iotcApiResponse.payload as any)?.message || iotcApiResponse.payload || 'An error occurred');
             }
 
             return iotcApiResponse;
         }
         catch (ex) {
             this.server.log(['IoTCentralService', 'error'], `makeRequest: ${ex.message}`);
+
             throw ex;
         }
     }

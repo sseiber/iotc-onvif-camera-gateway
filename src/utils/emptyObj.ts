@@ -1,10 +1,10 @@
-export function emptyObj(object: any) {
+export function emptyObj(object: any): boolean {
     if (!object) {
         return false;
     }
 
     for (const key in object) {
-        if (object.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(object, key)) {
             return false;
         }
     }

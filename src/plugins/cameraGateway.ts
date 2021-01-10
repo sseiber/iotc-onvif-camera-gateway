@@ -12,12 +12,11 @@ export class CameraGatewayPlugin implements HapiPlugin {
     @inject('cameraGateway')
     private cameraGateway: CameraGatewayService;
 
-    public async init() {
+    public async init(): Promise<void> {
         this.server.log([moduleName, 'info'], `init`);
     }
 
-    // @ts-ignore (options)
-    public async register(server: Server, options: any) {
+    public async register(server: Server, options: any): Promise<void> {
         server.log([moduleName, 'info'], 'register');
 
         try {

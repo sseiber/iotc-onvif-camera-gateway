@@ -1,4 +1,3 @@
-// tslint:disable:no-console
 const os = require('os');
 const path = require('path');
 const fse = require('fs-extra');
@@ -10,9 +9,14 @@ const processArgs = require('commander')
 const osType = os.type();
 const workspaceRootFolder = processArgs.workspaceRoot || process.cwd();
 
+function log(message) {
+    // eslint-disable-next-line no-console
+    console.log(message);
+}
+
 function createDevConfiguration(srcFile, dstFolder, dstFile) {
     if (!fse.pathExistsSync(dstFile)) {
-        console.log(`Creating configuration: ${dstFile}`);
+        log(`Creating configuration: ${dstFile}`);
 
         fse.ensureDirSync(dstFolder);
 
@@ -20,14 +24,14 @@ function createDevConfiguration(srcFile, dstFolder, dstFile) {
             fse.copyFileSync(srcFile, dstFile);
         }
         catch (ex) {
-            console.log(ex.message);
+            log(ex.message);
         }
     }
 }
 
 function start() {
-    console.log(`Creating workspace environment: ${workspaceRootFolder}`);
-    console.log(`Platform: ${osType}`);
+    log(`Creating workspace environment: ${workspaceRootFolder}`);
+    log(`Platform: ${osType}`);
 
     let setupFailed = false;
 
@@ -54,15 +58,15 @@ function start() {
         setupFailed = true;
     } finally {
         if (!setupFailed) {
-            console.log(`Operation complete`);
+            log(`Operation complete`);
         }
     }
 
     if (setupFailed) {
-        console.log(`Operation failed, see errors above`);
+        log(`Operation failed, see errors above`);
+
         process.exit(-1);
     }
 }
 
 start();
-// tslint:enable:no-console

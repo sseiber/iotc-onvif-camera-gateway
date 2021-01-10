@@ -21,7 +21,7 @@ export class VideoStreamController {
 
     private videoCaptureSource: string = rtspVideoCaptureSource;
     private ffmpegProcess: any = null;
-    private ffmpegCommandArgs: string = '';
+    private ffmpegCommandArgs = '';
     private healthState: number = HealthState.Good;
 
     constructor(server: Server, inferenceProcessor: InferenceProcessorService, inferenceInterval: number) {
@@ -33,7 +33,7 @@ export class VideoStreamController {
     public async startVideoStreamProcessor(rtspVideoUrl: string): Promise<boolean> {
         this.videoCaptureSource = rtspVideoCaptureSource;
 
-        // tslint:disable-next-line:prefer-conditional-expression
+        // eslint-disable-next-line
         if (this.videoCaptureSource === rtspVideoCaptureSource) {
             this.ffmpegCommandArgs = ffmpegRtspCommandArgs;
         }
@@ -119,8 +119,8 @@ export class VideoStreamController {
     }
 }
 
-const _SOI = Buffer.from([0xff, 0xd8]);
-const _EOI = Buffer.from([0xff, 0xd9]);
+const SOI = Buffer.from([0xff, 0xd8]);
+const EOI = Buffer.from([0xff, 0xd9]);
 
 class FrameProcessor extends Transform {
     private chunks = [];
@@ -151,15 +151,17 @@ class FrameProcessor extends Transform {
         let pos = 0;
 
         try {
+            // eslint-disable-next-line no-constant-condition
             while (true) {
                 if (this.size) {
-                    const eoi = chunk.indexOf(_EOI);
+                    const eoi = chunk.indexOf(EOI);
                     if (eoi === -1) {
                         this.chunks.push(chunk);
                         this.size += chunkLength;
 
                         break;
-                    } else {
+                    }
+                    else {
                         pos = eoi + 2;
                         const sliced = chunk.slice(0, pos);
                         this.chunks.push(sliced);
@@ -169,6 +171,7 @@ class FrameProcessor extends Transform {
                         this.chunks = [];
                         this.size = 0;
 
+                        // eslint-disable-next-line no-underscore-dangle
                         if ((this as any)._readableState.pipesCount > 0) {
                             this.push(this.internalJpeg);
                         }
@@ -181,27 +184,31 @@ class FrameProcessor extends Transform {
                             break;
                         }
                     }
-                } else {
-                    const soi = chunk.indexOf(_SOI, pos);
+                }
+                else {
+                    const soi = chunk.indexOf(SOI, pos);
                     if (soi === -1) {
                         break;
-                    } else {
+                    }
+                    else {
                         // todo might add option or take sample average / 2 to jump position for small gain
                         pos = soi + 500;
                     }
 
-                    const eoi = chunk.indexOf(_EOI, pos);
+                    const eoi = chunk.indexOf(EOI, pos);
                     if (eoi === -1) {
                         const sliced = chunk.slice(soi);
                         this.chunks = [sliced];
                         this.size = sliced.length;
 
                         break;
-                    } else {
+                    }
+                    else {
                         pos = eoi + 2;
                         this.internalJpeg = chunk.slice(soi, pos);
                         this.internalTimestamp = Date.now();
 
+                        // eslint-disable-next-line no-underscore-dangle
                         if ((this as any)._readableState.pipesCount > 0) {
                             this.push(this.internalJpeg);
                         }
@@ -218,7 +225,7 @@ class FrameProcessor extends Transform {
             }
         }
         catch (ex) {
-            // tslint:disable no-console variable-name
+            // eslint-disable-next-line no-console
             console.log(`##JPEG parse exception`);
         }
 
