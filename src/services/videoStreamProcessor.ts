@@ -33,7 +33,6 @@ export class VideoStreamController {
     public async startVideoStreamProcessor(rtspVideoUrl: string): Promise<boolean> {
         this.videoCaptureSource = rtspVideoCaptureSource;
 
-        // eslint-disable-next-line
         if (this.videoCaptureSource === rtspVideoCaptureSource) {
             this.ffmpegCommandArgs = ffmpegRtspCommandArgs;
         }

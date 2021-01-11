@@ -302,7 +302,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         }
     }
 
-    // @ts-ignore
+    // @ts-ignore (data)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     public async uploadContent(data: Buffer): Promise<string> {
         return '';

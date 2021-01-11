@@ -16,6 +16,7 @@ export class CameraGatewayPlugin implements HapiPlugin {
         this.server.log([moduleName, 'info'], `init`);
     }
 
+    // @ts-ignore (options)
     public async register(server: Server, options: any): Promise<void> {
         server.log([moduleName, 'info'], 'register');
 
