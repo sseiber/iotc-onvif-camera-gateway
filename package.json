@@ -5,7 +5,7 @@
     "main": "index.js",
     "scripts": {
         "test": "node ./node_modules/jest/bin/jest.js",
-        "lint": "eslint -c .eslintrc.json --ext .ts .",
+        "eslint": "eslint -c .eslintrc.json --ext .ts .",
         "build": "node ./node_modules/typescript/bin/tsc -p .",
         "dockerbuild": "node ./scripts/dockerBuild.js --docker-build",
         "dockerpush": "node ./scripts/dockerBuild.js --docker-push",
@@ -30,6 +30,7 @@
         "azure-iot-provisioning-device": "^1.8.7",
         "azure-iot-provisioning-device-mqtt": "^1.7.7",
         "azure-iot-security-symmetric-key": "^1.7.7",
+        "commander": "^6.2.1",
         "fs-extra": "^9.0.1",
         "lodash.get": "^4.4.2",
         "lodash.set": "^4.3.2",

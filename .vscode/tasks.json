@@ -32,7 +32,7 @@
         },
         {
             "type": "npm",
-            "script": "lint",
+            "script": "eslint",
             "problemMatcher": [
                 "$eslint-stylish"
             ],
