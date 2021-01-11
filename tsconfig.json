@@ -1,11 +1,12 @@
 {
     "compilerOptions": {
         "outDir": "./dist",
-        "sourceMap": true,
+        "module": "CommonJS",
         "moduleResolution": "node",
-        "module": "commonjs",
-        "target": "es2016",
+        "target": "ES6",
+        "sourceMap": true,
         "jsx": "react",
+        "skipLibCheck": true,
         "noImplicitAny": false,
         "noUnusedLocals": true,
         "noUnusedParameters": true,
@@ -15,16 +16,11 @@
             "node_modules/@types"
         ],
         "lib": [
-            "es2016"
+            "ES6"
         ]
     },
     "compileOnSave": true,
     "include": [
         "./src/**/*.ts"
-    ],
-    "exclude": [
-        "node_modules",
-        "scripts",
-        "storage"
     ]
 }
