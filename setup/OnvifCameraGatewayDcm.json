@@ -571,6 +571,17 @@
                 "schema": "string"
             },
             {
+                "@type": [
+                    "Telemetry",
+                    "Event"
+                ],
+                "displayName": {
+                    "en": "Upload Discovery Results"
+                },
+                "name": "evUploadDiscoveryResults",
+                "schema": "string"
+            },
+            {
                 "@type": "Command",
                 "displayName": {
                     "en": "Scan for Cameras"

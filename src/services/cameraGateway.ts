@@ -14,6 +14,13 @@ import {
     DeviceMethodResponse
 } from 'azure-iot-device';
 import {
+    BlobServiceClient,
+    StorageSharedKeyCredential
+} from '@azure/storage-blob';
+import * as moment from 'moment';
+import { join as pathJoin } from 'path';
+import { Readable } from 'stream';
+import {
     arch as osArch,
     platform as osPlatform,
     release as osRelease,
@@ -26,7 +33,7 @@ import {
 // import { exec as processExec } from 'child_process';
 import * as crypto from 'crypto';
 import * as Wreck from '@hapi/wreck';
-import { bind, emptyObj, forget, sleep } from '../utils';
+import { bind, emptyObj, forget } from '../utils';
 import { IDirectMethodResult } from '../plugins/iotCentral';
 
 const moduleName = 'CameraGatewayService';
@@ -110,10 +117,6 @@ enum DeleteCameraRequestParams {
     DeviceId = 'DeleteCameraRequestParams_DeviceId'
 }
 
-enum RestartCameraRequestParams {
-    Timeout = 'RestartCameraRequestParams_Timeout'
-}
-
 enum ScanForCamerasRequestParams {
     ScanTimeout = 'ScanForCamerasRequestParams_ScanTimeout'
 }
@@ -148,8 +151,7 @@ export const IOnvifCameraGateway = {
         ModuleStopped: 'evModuleStopped',
         ModuleRestart: 'evModuleRestart',
         CreateCamera: 'evCreateCamera',
-        DeleteCamera: 'evDeleteCamera',
-        RestartCamera: 'evRestartCamera'
+        DeleteCamera: 'evDeleteCamera'
     },
     Setting: {
         DebugTelemetry: OnvifCameraGatewaySettings.DebugTelemetry
@@ -157,7 +159,6 @@ export const IOnvifCameraGateway = {
     Command: {
         AddCamera: 'cmAddCamera',
         DeleteCamera: 'cmDeleteCamera',
-        RestartCamera: 'cmRestartCamera',
         RestartModule: 'cmRestartModule'
     }
 };
@@ -165,7 +166,8 @@ export const IOnvifCameraGateway = {
 export const IOnvifCameraDiscovery = {
     Event: {
         CameraDiscoveryStarted: 'evCameraDiscoveryStarted',
-        CameraDiscoveryCompleted: 'evCameraDiscoveryCompleted'
+        CameraDiscoveryCompleted: 'evCameraDiscoveryCompleted',
+        UploadDiscoveryResults: 'evUploadDiscoveryResults'
     },
     Command: {
         ScanForCameras: 'cmScanForCameras',
@@ -207,6 +209,8 @@ export class CameraGatewayService {
     private dpsProvisioningHost: string = defaultDpsProvisioningHost;
     private leafDeviceModelId: string = defaultLeafDeviceModelId;
     private leafDeviceInterfaceInstanceName: string = defaultLeafDeviceInterfaceInstanceName;
+    private blobStorageSharedKeyCredential: StorageSharedKeyCredential;
+    private blobStorageServiceClient: BlobServiceClient;
 
     public async init(): Promise<void> {
         this.server.log([moduleName, 'info'], 'initialize');
@@ -277,7 +281,6 @@ export class CameraGatewayService {
 
         this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.AddCamera, this.addCameraDirectMethod);
         this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.DeleteCamera, this.deleteCameraDirectMethod);
-        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.RestartCamera, this.restartCameraDirectMethod);
         this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.RestartModule, this.restartModuleDirectMethod);
         this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraDiscovery.Command.ScanForCameras, this.scanForCamerasDirectMethod);
         this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraDiscovery.Command.TestOnvif, this.testOnvifDirectMethod);
@@ -375,6 +378,133 @@ export class CameraGatewayService {
         // let Docker restart our container
         this.server.log([moduleName, 'info'], `Shutting down main process - module container will restart`);
         process.exit(1);
+    }
+
+    private async ensureBlobServiceClient() {
+        try {
+            if (!this.blobStorageServiceClient) {
+                this.server.log([moduleName, 'info'], `Creating blob storage shared key credential`);
+
+                this.blobStorageSharedKeyCredential = new StorageSharedKeyCredential(this.iotCentralAppKeys.azureBlobAccountName, this.iotCentralAppKeys.azureBlobAccountKey);
+
+                this.server.log([moduleName, 'info'], `Creating blob storage client`);
+
+                this.blobStorageServiceClient = new BlobServiceClient(this.iotCentralAppKeys.azureBlobHostUrl, this.blobStorageSharedKeyCredential);
+            }
+        }
+        catch (ex) {
+            this.server.log([moduleName, 'error'], `Error creating the blob storage service shared key and client: ${ex.message}`);
+        }
+    }
+
+    private async uploadCameraDiscoveryResults(cameraDiscoveryResults: any): Promise<string> {
+        let fileUrl = '';
+
+        try {
+            this.server.log([moduleName, 'info'], `Preparing to upload results to blob storage container`);
+
+            await this.ensureBlobServiceClient();
+
+            const containerClient = this.blobStorageServiceClient.getContainerClient(this.iotCentralAppKeys.azureBlobContainer);
+            const blobName = `Camera Discovery ${moment.utc().format('YYYYMMDD-HHmmss')}.csv`;
+            const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+            const blobContentPath = pathJoin(`https://iotcsafileupload.blob.core.windows.net/`, `onvif-camera-gateway`, blobName);
+
+            const csvResults = [`Name,Model,IpAddress`].concat(cameraDiscoveryResults.map((cameraResult) => {
+                return `${cameraResult?.Name || ''},${cameraResult?.Hardware || ''},${cameraResult?.RemoteAddress || ''}`;
+            })).join('\n');
+
+            const bufferData = Buffer.from(csvResults, 'utf8');
+            const readableStream = new Readable({
+                read() {
+                    this.push(bufferData);
+                    this.push(null);
+                }
+            });
+
+            const uploadOptions = {
+                blobHTTPHeaders: {
+                    blobContentType: 'text/csv'
+                }
+            };
+
+            const uploadResponse = await blockBlobClient.uploadStream(readableStream, bufferData.length, 5, uploadOptions);
+
+            // eslint-disable-next-line no-underscore-dangle
+            if (uploadResponse?._response.status === 201) {
+                await this.server.settings.app.iotCentralModule.sendMeasurement({
+                    [IOnvifCameraDiscovery.Event.UploadDiscoveryResults]: blobContentPath
+                });
+
+                // eslint-disable-next-line no-underscore-dangle
+                this.server.log([moduleName, 'info'], `Success - status: ${uploadResponse?._response.status}, path: ${blobContentPath}`);
+
+                fileUrl = blobContentPath;
+            }
+            else {
+                // eslint-disable-next-line no-underscore-dangle
+                this.server.log([moduleName, 'info'], `Error while uploading content to blob storage - status: ${uploadResponse?._response.status}, code: ${uploadResponse?.errorCode}`);
+            }
+        }
+        catch (ex) {
+            this.server.log([moduleName, 'error'], `Error while uploading content to blob storage container: ${ex.message}`);
+        }
+
+        return fileUrl;
+    }
+
+    private async scanForCameras(scanTimeout: number): Promise<IDirectMethodResult> {
+        let serviceResponse = {
+            status: 500,
+            message: `Error durng onvif Discover request`,
+            payload: {}
+        };
+
+        try {
+            const requestParams = {
+                timeout: scanTimeout < 0 || scanTimeout > 60 ? 5000 : scanTimeout * 1000
+            };
+
+            serviceResponse = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+                this.onvifModuleId,
+                'Discover',
+                requestParams);
+
+            this.server.log([moduleName, 'info'], 'Onvif camera discovery complete, uploading results to blob storage...');
+
+            await this.uploadCameraDiscoveryResults(serviceResponse.payload);
+
+            serviceResponse.message = 'Completed onvif camera discovery and uploaded results to blob store';
+        }
+        catch (ex) {
+            serviceResponse.message = `Error during onvif camera discovery: ${ex.message}`;
+            this.server.log([moduleName, 'error'], serviceResponse.message);
+        }
+
+        return serviceResponse;
+    }
+
+    private async testOnvif(command: string, requestParams: any): Promise<IDirectMethodResult> {
+        let serviceResponse = {
+            status: 500,
+            message: `Error durng onvif test request`,
+            payload: {}
+        };
+
+        try {
+            serviceResponse = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+                this.onvifModuleId,
+                command,
+                requestParams);
+
+            serviceResponse.message = `Executed onvif command: ${command}`;
+        }
+        catch (ex) {
+            serviceResponse.message = `Error executing onvif ${command} command: ${ex.message}`;
+            this.server.log([moduleName, 'error'], serviceResponse.message);
+        }
+
+        return serviceResponse;
     }
 
     private async getSystemProperties(): Promise<ISystemProperties> {
@@ -646,52 +776,25 @@ export class CameraGatewayService {
         return crypto.createHmac('SHA256', Buffer.from(masterKey, 'base64')).update(deviceId, 'utf8').digest('base64');
     }
 
-    private async restartCamera(timeout: number, reason: string): Promise<IDirectMethodResult> {
-        this.server.log([moduleName, 'info'], `Camera restart requested...`);
-
-        let rebootResult: IDirectMethodResult = {
-            status: 200,
-            message: '',
-            payload: {}
-        };
-
-        try {
-            await this.server.settings.app.iotCentralModule.sendMeasurement({
-                [IOnvifCameraGateway.Event.RestartCamera]: reason
-            });
-
-            // wait here for the requested timeout
-            await sleep(timeout < 0 || timeout > 60 ? 5000 : timeout * 1000);
-
-            rebootResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
-                this.onvifModuleId,
-                'Reboot',
-                {}
-            );
-        }
-        catch (ex) {
-            this.server.log([moduleName, 'error'], `${ex.message}`);
-
-            rebootResult.message = `Error while attempting to reboot the camera device: ${ex.message}`;
-        }
-
-        return rebootResult;
-    }
-
     @bind
     private async addCameraDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
         this.server.log([moduleName, 'info'], `${IOnvifCameraGateway.Command.AddCamera} command received`);
 
-        try {
-            const cameraInfo: ICameraProvisionInfo = {
-                deviceId: commandRequest?.payload?.[AddCameraRequestParams.DeviceId],
-                deviceName: commandRequest?.payload?.[AddCameraRequestParams.Name],
-                ipAddress: commandRequest?.payload?.[AddCameraRequestParams.IpAddress],
-                onvifUsername: commandRequest?.payload?.[AddCameraRequestParams.OnvifUsername],
-                onvifPassword: commandRequest?.payload?.[AddCameraRequestParams.OnvifPassword],
-                onvifMediaProfileToken: commandRequest?.payload?.[AddCameraRequestParams.OnvifMediaProfileToken]
-            };
+        const addCamerasResponse = {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: '',
+            [CommandResponseParams.Data]: ''
+        };
+        const cameraInfo: ICameraProvisionInfo = {
+            deviceId: commandRequest?.payload?.[AddCameraRequestParams.DeviceId],
+            deviceName: commandRequest?.payload?.[AddCameraRequestParams.Name],
+            ipAddress: commandRequest?.payload?.[AddCameraRequestParams.IpAddress],
+            onvifUsername: commandRequest?.payload?.[AddCameraRequestParams.OnvifUsername],
+            onvifPassword: commandRequest?.payload?.[AddCameraRequestParams.OnvifPassword],
+            onvifMediaProfileToken: commandRequest?.payload?.[AddCameraRequestParams.OnvifMediaProfileToken]
+        };
 
+        try {
             if (!cameraInfo.deviceId
                 || !cameraInfo.deviceName
                 || !cameraInfo.ipAddress
@@ -700,7 +803,7 @@ export class CameraGatewayService {
                 || !cameraInfo.onvifMediaProfileToken) {
                 await commandResponse.send(200, {
                     [CommandResponseParams.StatusCode]: 400,
-                    [CommandResponseParams.Message]: `The ${IOnvifCameraGateway.Command.AddCamera} command is missing required parameters`,
+                    [CommandResponseParams.Message]: `Missing required parameters`,
                     [CommandResponseParams.Data]: ''
                 });
 
@@ -709,27 +812,34 @@ export class CameraGatewayService {
 
             const provisionResult = await this.createCamera(cameraInfo);
 
-            await commandResponse.send(200, {
-                [CommandResponseParams.StatusCode]: 200,
-                [CommandResponseParams.Message]: provisionResult.clientConnectionMessage || provisionResult.dpsProvisionMessage,
-                [CommandResponseParams.Data]: ''
-            });
+            addCamerasResponse[CommandResponseParams.Message] = provisionResult.clientConnectionMessage || provisionResult.dpsProvisionMessage;
         }
         catch (ex) {
-            this.server.log([moduleName, 'error'], `Error creating device: ${ex.message}`);
+            addCamerasResponse[CommandResponseParams.StatusCode] = 500;
+            addCamerasResponse[CommandResponseParams.Message] = `Error creating camera device ${cameraInfo.deviceId}`;
+
+            this.server.log([moduleName, 'error'], addCamerasResponse[CommandResponseParams.Message]);
         }
+
+        await commandResponse.send(200, addCamerasResponse);
     }
 
     @bind
     private async deleteCameraDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
         this.server.log([moduleName, 'info'], `${IOnvifCameraGateway.Command.DeleteCamera} command received`);
 
+        const deleteCamerasResponse = {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: '',
+            [CommandResponseParams.Data]: ''
+        };
+        const deviceId = commandRequest?.payload?.[DeleteCameraRequestParams.DeviceId];
+
         try {
-            const deviceId = commandRequest?.payload?.[DeleteCameraRequestParams.DeviceId];
             if (!deviceId) {
                 await commandResponse.send(200, {
                     [CommandResponseParams.StatusCode]: 400,
-                    [CommandResponseParams.Message]: `The ${IOnvifCameraGateway.Command.DeleteCamera} command requires a Device Id parameter`,
+                    [CommandResponseParams.Message]: `Missing required Device Id parameter`,
                     [CommandResponseParams.Data]: ''
                 });
 
@@ -738,96 +848,83 @@ export class CameraGatewayService {
 
             const deleteResult = await this.deprovisionDevice(deviceId);
 
-            await commandResponse.send(200, {
-                [CommandResponseParams.StatusCode]: 200,
-                [CommandResponseParams.Message]: deleteResult
-                    ? `The ${IOnvifCameraGateway.Command.DeleteCamera} command succeeded`
-                    : `An error occurred while executing the ${IOnvifCameraGateway.Command.DeleteCamera} command`,
-                [CommandResponseParams.Data]: ''
-            });
+            if (deleteResult) {
+                deleteCamerasResponse[CommandResponseParams.Message] = `Finished deprovisioning camera device ${deviceId}`;
+            }
+            else {
+                deleteCamerasResponse[CommandResponseParams.StatusCode] = 500;
+                deleteCamerasResponse[CommandResponseParams.Message] = `Error deprovisioning camera device ${deviceId}`;
+            }
         }
         catch (ex) {
-            this.server.log([moduleName, 'error'], `Error deleting device: ${ex.message}`);
-        }
-    }
+            deleteCamerasResponse[CommandResponseParams.StatusCode] = 500;
+            deleteCamerasResponse[CommandResponseParams.Message] = `Error deprovisioning camera device ${deviceId}`;
 
-    @bind
-    private async restartCameraDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log([moduleName, 'info'], `${IOnvifCameraGateway.Command.RestartCamera} command received`);
-
-        let rebootResult: IDirectMethodResult = {
-            status: 200,
-            message: `An error occurred while trying to restart the camera device.`,
-            payload: {}
-        };
-
-        try {
-            rebootResult = await this.restartCamera(commandRequest?.payload?.[RestartCameraRequestParams.Timeout] || 0, 'RestartCamera command received');
-        }
-        catch (ex) {
-            this.server.log([moduleName, 'error'], `Error attempting to restart camera: ${ex.message}`);
-            rebootResult.message = `Error attempting to restart camera: ${ex.message}`;
+            this.server.log([moduleName, 'error'], deleteCamerasResponse[CommandResponseParams.Message]);
         }
 
-        await commandResponse.send(200, {
-            [CommandResponseParams.StatusCode]: rebootResult.status,
-            [CommandResponseParams.Message]: rebootResult.message,
-            [CommandResponseParams.Data]: ''
-        });
+        await commandResponse.send(200, deleteCamerasResponse);
     }
 
     @bind
     private async scanForCamerasDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
         this.server.log([moduleName, 'info'], `${IOnvifCameraDiscovery.Command.ScanForCameras} command received`);
 
+        const scanForCamerasResponse = {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: '',
+            [CommandResponseParams.Data]: ''
+        };
+
         try {
             const scanTimeout = commandRequest?.payload?.[ScanForCamerasRequestParams.ScanTimeout] || 5;
 
-            const scanResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
-                this.onvifModuleId,
-                'Discover',
-                {
-                    timeout: scanTimeout < 0 || scanTimeout > 60 ? 5000 : scanTimeout * 1000
-                }
-            );
+            const serviceResponse = await this.scanForCameras(scanTimeout);
 
-            await commandResponse.send(200, {
-                [CommandResponseParams.StatusCode]: 200,
-                [CommandResponseParams.Message]: scanResult.message,
-                [CommandResponseParams.Data]: JSON.stringify(scanResult.payload, null, 4)
-            });
+
+            scanForCamerasResponse[CommandResponseParams.Message] = serviceResponse.message;
+            scanForCamerasResponse[CommandResponseParams.Data] = JSON.stringify(serviceResponse.payload, null, 4);
+
+            this.server.log(['IoTCentralService', 'info'], `Discover cameras request: ${serviceResponse.message}`);
         }
         catch (ex) {
-            this.server.log([moduleName, 'error'], `Error while scanning for devices: ${ex.message}`);
+            scanForCamerasResponse[CommandResponseParams.StatusCode] = 500;
+            scanForCamerasResponse[CommandResponseParams.Message] = `Error during camera discovery: ${ex.message}`;
+
+            this.server.log(['IoTCentralService', 'error'], scanForCamerasResponse[CommandResponseParams.Message]);
         }
+
+        await commandResponse.send(200, scanForCamerasResponse);
     }
 
     @bind
     private async testOnvifDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
         this.server.log(['IoTCentralService', 'info'], `${IOnvifCameraDiscovery.Command.TestOnvif} command received`);
 
-        let testResult: IDirectMethodResult = {
-            status: 200,
-            message: '',
-            payload: {}
+        const testOnvifResponse = {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: '',
+            [CommandResponseParams.Data]: ''
         };
 
         try {
-            testResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
-                this.onvifModuleId,
-                commandRequest?.payload?.[TestOnvifRequestParams.Command],
-                JSON.parse(commandRequest?.payload?.[TestOnvifRequestParams.Payload] || ''));
+            const command = commandRequest?.payload?.[TestOnvifRequestParams.Command] || '';
+            const requestParams = JSON.parse(commandRequest?.payload?.[TestOnvifRequestParams.Payload] || '');
+
+            const serviceResponse = await this.testOnvif(command, requestParams);
+
+            testOnvifResponse[CommandResponseParams.Message] = serviceResponse.message;
+
+            this.server.log(['IoTCentralService', 'info'], `Restart camera request: ${serviceResponse.message}`);
         }
         catch (ex) {
-            testResult.message = `Error while in testOnvif handler: ${ex.message}`;
-            this.server.log(['IoTCentralService', 'error'], testResult.message);
+            testOnvifResponse[CommandResponseParams.StatusCode] = 500;
+            testOnvifResponse[CommandResponseParams.Message] = `Error testing onvif command: ${ex.message}`;
+
+            this.server.log(['IoTCentralService', 'error'], testOnvifResponse[CommandResponseParams.Message]);
         }
 
-        await commandResponse.send(200, {
-            [CommandResponseParams.StatusCode]: 200,
-            [CommandResponseParams.Message]: testResult.message,
-            [CommandResponseParams.Data]: JSON.stringify(testResult.payload, null, 4)
-        });
+        await commandResponse.send(200, testOnvifResponse);
     }
 
     @bind
@@ -838,14 +935,20 @@ export class CameraGatewayService {
             // sending response before processing, since this is a restart request
             await commandResponse.send(200, {
                 [CommandResponseParams.StatusCode]: 200,
-                [CommandResponseParams.Message]: 'Received command to restart the module',
+                [CommandResponseParams.Message]: 'Restart module request received',
                 [CommandResponseParams.Data]: ''
             });
 
             await this.restartModule(commandRequest?.payload?.[RestartModuleRequestParams.Timeout] || 0, 'RestartModule command received');
         }
         catch (ex) {
-            this.server.log(['IoTCentralService', 'error'], `Error sending response for ${IOnvifCameraGateway.Command.RestartModule} command: ${ex.message}`);
+            this.server.log(['IoTCentralService', 'error'], `'Error while attempting to restart the module': ${ex.message}`);
+
+            await commandResponse.send(200, {
+                [CommandResponseParams.StatusCode]: 500,
+                [CommandResponseParams.Message]: 'Error while attempting to restart the module',
+                [CommandResponseParams.Data]: ''
+            });
         }
     }
 

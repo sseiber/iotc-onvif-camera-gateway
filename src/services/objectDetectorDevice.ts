@@ -172,7 +172,6 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     };
     private detectionClasses: string[] = this.objectDetectorSettings[ObjectDetectorSettings.DetectionClasses].toUpperCase().split(',');
     private inferenceProcessor: InferenceProcessorService;
-    private rtspStreamUri = '';
 
     constructor(server: Server, options: IObjectDetectorCreateOptions) {
         this.server = server;
@@ -334,7 +333,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             await this.ensureBlobServiceClient();
 
             const containerClient = this.blobStorageServiceClient.getContainerClient(this.appKeys.azureBlobContainer);
-            const blobName = `${moment.utc().format('YYYYMMDD-HHmmss')}.jpeg`;
+            const blobName = `${moment.utc().format('YYYYMMDD-HHmmss')}.jpg`;
             const blockBlobClient = containerClient.getBlockBlobClient(blobName);
             const blobContentPath = pathJoin(`https://iotcsafileupload.blob.core.windows.net/`, `onvif-camera-gateway`, blobName);
 
@@ -356,18 +355,13 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
 
             // eslint-disable-next-line no-underscore-dangle
             if (uploadResponse?._response.status === 201) {
-                this.server.log([moduleName, 'XXXX'], `Device client is: ${this.deviceClient ? 'set' : 'not set'}`);
-                this.server.log([moduleName, 'XXXX'], `Calling sendMeasurement`);
                 await this.sendMeasurement({
                     [ICameraDeviceInterface.Event.UploadImage]: blobContentPath
                 });
-                this.server.log([moduleName, 'XXXX'], `Done calling sendMeasurement`);
 
-                this.server.log([moduleName, 'XXXX'], `Calling updateDeviceProperties`);
                 await this.updateDeviceProperties({
                     [IObjectDetectorInterface.Property.InferenceImageUrl]: blobContentPath
                 });
-                this.server.log([moduleName, 'XXXX'], `Done calling sendMeasurement`);
 
                 // eslint-disable-next-line no-underscore-dangle
                 this.server.log([moduleName, 'info'], `Success - status: ${uploadResponse?._response.status}, path: ${blobContentPath}`);
@@ -376,7 +370,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
             }
             else {
                 // eslint-disable-next-line no-underscore-dangle
-                this.server.log([moduleName, 'info'], `Error while uploading content to blob storage - status: ${uploadResponse?._response.status}, code: ${uploadResponse.errorCode}`);
+                this.server.log([moduleName, 'info'], `Error while uploading content to blob storage - status: ${uploadResponse?._response.status}, code: ${uploadResponse?.errorCode}`);
             }
         }
         catch (ex) {
@@ -561,10 +555,18 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         return result;
     }
 
-    private async captureImage(): Promise<IDirectMethodResult> {
-        let serviceResult: IDirectMethodResult = {
-            status: 200,
-            message: '',
+    private async stopImageProcessor(): Promise<void> {
+        if (this.inferenceProcessor) {
+            await this.inferenceProcessor.stopInferenceProcessor();
+
+            this.inferenceProcessor = null;
+        }
+    }
+
+    private async getOnvifRtspStreamUri(): Promise<IDirectMethodResult> {
+        let serviceResponse = {
+            status: 500,
+            message: `Error durng onvif GetRTSPStreamURI request`,
             payload: {}
         };
 
@@ -576,25 +578,60 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                 MediaProfileToken: this.cameraInfo.onvifMediaProfileToken
             };
 
-            serviceResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+            serviceResponse = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+                this.onvifModuleId,
+                'GetRTSPStreamURI',
+                requestParams);
+
+            serviceResponse.message = `Onvif request for RTSPStreamURI succeeded: ${serviceResponse.payload}`;
+        }
+        catch (ex) {
+            this.server.log([moduleName, 'error'], serviceResponse.message);
+        }
+
+        return serviceResponse;
+    }
+
+    private async captureImage(): Promise<IDirectMethodResult> {
+        let serviceResponse = {
+            status: 500,
+            message: `Error durng onvif GetSnapshot request`,
+            payload: {}
+        };
+
+        try {
+            const requestParams = {
+                Address: this.cameraInfo.ipAddress,
+                Username: this.cameraInfo.onvifUsername,
+                Password: this.cameraInfo.onvifPassword,
+                MediaProfileToken: this.cameraInfo.onvifMediaProfileToken
+            };
+
+            this.server.log([moduleName, 'info'], `Starting onvif image capture...`);
+
+            serviceResponse = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
                 this.onvifModuleId,
                 'GetSnapshot',
                 requestParams);
 
-            serviceResult.message = `Successfully captured image for device: ${this.cameraInfo.deviceId}`;
+            this.server.log([moduleName, 'info'], `Image capture complete, uploading image data to blob storage...`);
+
+            await this.uploadContentFromBase64(serviceResponse.payload as string);
+
+            serviceResponse.message = `Successfully captured and uploaded image from camera device: ${this.cameraInfo.deviceId}`;
         }
         catch (ex) {
-            serviceResult.message = ex.message;
-            this.server.log([moduleName, 'error'], `An error occurred while attempting to capture an image on device: ${this.cameraInfo.deviceId}: ${ex.message}`);
+            serviceResponse.message = `An error occurred while attempting to capture an image on device: ${this.cameraInfo.deviceId}: ${ex.message}`;
+            this.server.log([moduleName, 'error'], serviceResponse.message);
         }
 
-        return serviceResult;
+        return serviceResponse;
     }
 
     private async restartCamera(): Promise<IDirectMethodResult> {
-        let serviceResult: IDirectMethodResult = {
-            status: 200,
-            message: '',
+        let serviceResponse = {
+            status: 500,
+            message: `Error durng onvif Reboot request`,
             payload: {}
         };
 
@@ -605,58 +642,19 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                 Password: this.cameraInfo.onvifPassword
             };
 
-            serviceResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+            serviceResponse = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
                 this.onvifModuleId,
                 'Reboot',
                 requestParams);
 
-            serviceResult.message = `Sent reboot command to camera: ${this.cameraInfo.deviceId}`;
+            serviceResponse.message = (serviceResponse.payload as string) || '';
         }
         catch (ex) {
-            serviceResult.message = ex.message;
-            this.server.log([moduleName, 'error'], `An error occurred while attempting send reboot command to device: ${this.cameraInfo.deviceId}: ${ex.message}`);
+            serviceResponse.message = `Error while attempting to restart camera (${this.cameraInfo.deviceId}): ${ex.message}`;
+            this.server.log([moduleName, 'error'], serviceResponse.message);
         }
 
-        return serviceResult;
-    }
-
-    private async stopImageProcessor(): Promise<void> {
-        if (this.inferenceProcessor) {
-            await this.inferenceProcessor.stopInferenceProcessor();
-
-            this.inferenceProcessor = null;
-        }
-    }
-
-    private async getOnvifRtspStreamUri(): Promise<string> {
-        let rtspStreamUri = '';
-
-        try {
-            let streamUriResult: IDirectMethodResult = {
-                status: 200,
-                message: '',
-                payload: {}
-            };
-
-            const requestParams = {
-                Address: this.cameraInfo.ipAddress,
-                Username: this.cameraInfo.onvifUsername,
-                Password: this.cameraInfo.onvifPassword,
-                MediaProfileToken: this.cameraInfo.onvifMediaProfileToken
-            };
-
-            streamUriResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
-                this.onvifModuleId,
-                'GetRTSPStreamURI',
-                requestParams);
-
-            rtspStreamUri = streamUriResult.payload;
-        }
-        catch (ex) {
-            this.server.log([moduleName, 'error'], `Error while in testOnvif handler: ${ex.message}`);
-        }
-
-        return rtspStreamUri;
+        return serviceResponse;
     }
 
     @bind
@@ -734,35 +732,49 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private async startImageProcessingDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
         this.server.log([moduleName, 'info'], `Received device command: ${ICameraDeviceInterface.Command.StartImageProcessing}`);
 
-        if (this.inferenceProcessor) {
-            await this.inferenceProcessor.stopInferenceProcessor();
-
-            this.inferenceProcessor = null;
-        }
-
-        this.inferenceProcessor = new InferenceProcessorService(
-            this.server,
-            this,
-            this.objectDetectorSettings[ObjectDetectorSettings.InferenceInterval],
-            this.detectionClasses,
-            this.objectDetectorSettings[ObjectDetectorSettings.ConfidenceThreshold],
-            this.objectDetectorSettings[ObjectDetectorSettings.InferenceTimeout]);
-
-        if (!this.rtspStreamUri) {
-            this.rtspStreamUri = await this.getOnvifRtspStreamUri();
-        }
-
-        const rtspUrl = new URL(this.rtspStreamUri);
-        rtspUrl.username = this.cameraInfo.onvifUsername;
-        rtspUrl.password = this.cameraInfo.onvifPassword;
-
-        await this.inferenceProcessor.startInferenceProcessor(rtspUrl.href);
-
-        await commandResponse.send(200, {
+        const startImageProcessingResponse = {
             [CommandResponseParams.StatusCode]: 200,
-            [CommandResponseParams.Message]: `Received ${ICameraDeviceInterface.Command.StartImageProcessing} command for deviceId: ${this.cameraInfo.deviceId}`,
+            [CommandResponseParams.Message]: '',
             [CommandResponseParams.Data]: ''
-        });
+        };
+
+        try {
+            if (this.inferenceProcessor) {
+                await this.inferenceProcessor.stopInferenceProcessor();
+
+                this.inferenceProcessor = null;
+            }
+
+            this.inferenceProcessor = new InferenceProcessorService(
+                this.server,
+                this,
+                this.objectDetectorSettings[ObjectDetectorSettings.InferenceInterval],
+                this.detectionClasses,
+                this.objectDetectorSettings[ObjectDetectorSettings.ConfidenceThreshold],
+                this.objectDetectorSettings[ObjectDetectorSettings.InferenceTimeout]);
+
+            const serviceResponse = await this.getOnvifRtspStreamUri();
+
+            this.server.log([moduleName, 'info'], `RTSP stream uri: ${serviceResponse.payload}`);
+
+            const rtspUrl = new URL(serviceResponse.payload);
+            rtspUrl.username = this.cameraInfo.onvifUsername;
+            rtspUrl.password = this.cameraInfo.onvifPassword;
+
+            await this.inferenceProcessor.startInferenceProcessor(rtspUrl.href);
+
+            startImageProcessingResponse[CommandResponseParams.Message] = `Started image processing for for deviceId: ${this.cameraInfo.deviceId}`;
+
+            this.server.log(['IoTCentralService', 'info'], startImageProcessingResponse[CommandResponseParams.Message]);
+        }
+        catch (ex) {
+            startImageProcessingResponse[CommandResponseParams.StatusCode] = 500;
+            startImageProcessingResponse[CommandResponseParams.Message] = `Error while starting image processing: ${ex.message}`;
+
+            this.server.log(['IoTCentralService', 'error'], startImageProcessingResponse[CommandResponseParams.Message]);
+        }
+
+        await commandResponse.send(200, startImageProcessingResponse);
     }
 
     @bind
@@ -770,13 +782,27 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private async stopImageProcessingDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
         this.server.log([moduleName, 'info'], `Received device command: ${ICameraDeviceInterface.Command.StopImageProcessing}`);
 
-        await this.stopImageProcessor();
-
-        await commandResponse.send(200, {
+        const stopImageProcessingResponse = {
             [CommandResponseParams.StatusCode]: 200,
-            [CommandResponseParams.Message]: `Received ${ICameraDeviceInterface.Command.StopImageProcessing} command for deviceId: ${this.cameraInfo.deviceId}`,
+            [CommandResponseParams.Message]: '',
             [CommandResponseParams.Data]: ''
-        });
+        };
+
+        try {
+            await this.stopImageProcessor();
+
+            stopImageProcessingResponse[CommandResponseParams.Message] = `Stopped image processing for deviceId: ${this.cameraInfo.deviceId}`;
+
+            this.server.log(['IoTCentralService', 'info'], stopImageProcessingResponse[CommandResponseParams.Message]);
+        }
+        catch (ex) {
+            stopImageProcessingResponse[CommandResponseParams.StatusCode] = 500;
+            stopImageProcessingResponse[CommandResponseParams.Message] = `Error while stopping image processing: ${ex.message}`;
+
+            this.server.log(['IoTCentralService', 'error'], stopImageProcessingResponse[CommandResponseParams.Message]);
+        }
+
+        await commandResponse.send(200, stopImageProcessingResponse);
     }
 
     @bind
@@ -784,34 +810,27 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private async captureImageDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
         this.server.log([moduleName, 'info'], `Received device command: ${ICameraDeviceInterface.Command.CaptureImage}`);
 
-        const captureResult: IDirectMethodResult = {
-            status: 200,
-            message: '',
-            payload: {}
+        const captureImageResponse = {
+            [CommandResponseParams.StatusCode]: 200,
+            [CommandResponseParams.Message]: '',
+            [CommandResponseParams.Data]: ''
         };
 
         try {
-            this.server.log([moduleName, 'info'], `Starting onvif image capture...`);
+            const serviceResponse = await this.captureImage();
 
-            const serviceResult = await this.captureImage();
+            captureImageResponse[CommandResponseParams.Message] = serviceResponse.message;
 
-            this.server.log([moduleName, 'info'], `Image capture complete, uploading image data to blob storage...`);
-
-            await this.uploadContentFromBase64(serviceResult.payload);
-
-            captureResult.message = 'Successfully captured and uploaded image to blob service';
-            this.server.log([moduleName, 'info'], captureResult.message);
+            this.server.log(['IoTCentralService', 'info'], serviceResponse.message);
         }
         catch (ex) {
-            captureResult.message = `Error while capturing and uploading image: ${ex.message}`;
-            this.server.log(['IoTCentralService', 'error'], captureResult.message);
+            captureImageResponse[CommandResponseParams.StatusCode] = 500;
+            captureImageResponse[CommandResponseParams.Message] = `Error while capturing image: ${ex.message}`;
+
+            this.server.log(['IoTCentralService', 'error'], captureImageResponse[CommandResponseParams.Message]);
         }
 
-        await commandResponse.send(200, {
-            [CommandResponseParams.StatusCode]: 200,
-            [CommandResponseParams.Message]: captureResult.message,
-            [CommandResponseParams.Data]: ''
-        });
+        await commandResponse.send(200, captureImageResponse);
     }
 
     @bind
@@ -819,14 +838,28 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private async restartCameraDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
         this.server.log([moduleName, 'info'], `Received device command: ${ICameraDeviceInterface.Command.RestartCamera}`);
 
-        await this.stopImageProcessor();
-
-        await this.restartCamera();
-
-        await commandResponse.send(200, {
+        const restartCameraResponse = {
             [CommandResponseParams.StatusCode]: 200,
-            [CommandResponseParams.Message]: `Restart request sent to camera device: ${this.cameraInfo.deviceId}`,
+            [CommandResponseParams.Message]: '',
             [CommandResponseParams.Data]: ''
-        });
+        };
+
+        try {
+            await this.stopImageProcessor();
+
+            const serviceResponse = await this.restartCamera();
+
+            restartCameraResponse[CommandResponseParams.Message] = serviceResponse.message;
+
+            this.server.log(['IoTCentralService', 'info'], `Restart camera request: ${serviceResponse.message}`);
+        }
+        catch (ex) {
+            restartCameraResponse[CommandResponseParams.StatusCode] = 500;
+            restartCameraResponse[CommandResponseParams.Message] = `Error while attempting to restart camera: ${ex.message}`;
+
+            this.server.log(['IoTCentralService', 'error'], restartCameraResponse[CommandResponseParams.Message]);
+        }
+
+        await commandResponse.send(200, restartCameraResponse);
     }
 }
