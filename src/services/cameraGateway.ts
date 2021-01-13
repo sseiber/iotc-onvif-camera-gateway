@@ -726,6 +726,7 @@ export class CameraGatewayService {
             [CommandResponseParams.Message]: '',
             [CommandResponseParams.Data]: ''
         };
+
         const cameraInfo: ICameraProvisionInfo = {
             deviceId: commandRequest?.payload?.[AddCameraRequestParams.DeviceId],
             deviceName: commandRequest?.payload?.[AddCameraRequestParams.Name],

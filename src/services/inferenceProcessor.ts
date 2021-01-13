@@ -7,7 +7,7 @@ import {
 } from './objectDetectorDevice';
 import * as moment from 'moment';
 import * as Wreck from '@hapi/wreck';
-import { bind, sleep } from '../utils';
+import { bind } from '../utils';
 
 const moduleName = 'InferenceProcessor';
 
@@ -138,14 +138,6 @@ export class InferenceProcessorService {
         });
     }
 
-    public async captureImage(): Promise<string> {
-        while (!this.lastInferenceImage) {
-            await sleep(25);
-        }
-
-        return this.uploadInferenceImage(Buffer.from(this.lastInferenceImage));
-    }
-
     private async inferenceTimer(): Promise<void> {
         try {
             if (this.iotcDevice.debugTelemetry() === true) {
@@ -182,9 +174,9 @@ export class InferenceProcessorService {
     private async uploadInferenceImage(imageBuffer: Buffer): Promise<string> {
         const imageUrl = await this.iotcDevice.uploadContent(imageBuffer);
 
-        await this.iotcDevice.updateDeviceProperties({
-            [IObjectDetectorInterface.Property.InferenceImageUrl]: imageUrl
-        });
+        // await this.iotcDevice.updateDeviceProperties({
+        //     [IObjectDetectorInterface.Property.InferenceImageUrl]: imageUrl
+        // });
 
         return imageUrl;
     }

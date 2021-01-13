@@ -293,10 +293,25 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         }
     }
 
-    // @ts-ignore (data)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     public async uploadContent(data: Buffer): Promise<string> {
-        return '';
+        const blobUrl = await this.blobStore.uploadBufferImageToContainer(data);
+
+        if (blobUrl) {
+            // await this.sendMeasurement({
+            //     [ICameraDeviceInterface.Event.UploadImage]: blobUrl
+            // });
+
+            // await this.updateDeviceProperties({
+            //     [IObjectDetectorInterface.Property.InferenceImageUrl]: blobUrl
+            // });
+
+            this.server.log([moduleName, 'info'], `Successfully captured and uploaded image from camera device: ${this.cameraInfo.deviceId}`);
+        }
+        // else {
+        //     this.server.log([moduleName, 'error'], `An error occurred while uploading the captured image to the blob storage service`);
+        // }
+
+        return blobUrl;
     }
 
     // @ts-ignore

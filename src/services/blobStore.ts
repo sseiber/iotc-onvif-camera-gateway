@@ -27,6 +27,11 @@ export class BlobStoreService {
     private blobStorageSharedKeyCredential: StorageSharedKeyCredential;
     private blobStorageServiceClient: BlobServiceClient;
 
+    // @ts-ignore (data)
+    public async uploadBufferImageToContainer(data: Buffer): Promise<string> {
+        return '';
+    }
+
     public async uploadBase64ImageToContainer(data: string): Promise<string> {
         let imageUrl = '';
 
