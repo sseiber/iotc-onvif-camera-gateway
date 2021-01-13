@@ -6,6 +6,7 @@ import {
     IObjectDetectorCreateOptions,
     ObjectDetectorDevice
 } from './objectDetectorDevice';
+import { BlobStoreService } from './blobStore';
 import { SymmetricKeySecurityClient } from 'azure-iot-security-symmetric-key';
 import { ProvisioningDeviceClient } from 'azure-iot-provisioning-device';
 import { Mqtt as ProvisioningTransport } from 'azure-iot-provisioning-device-mqtt';
@@ -13,13 +14,6 @@ import {
     DeviceMethodRequest,
     DeviceMethodResponse
 } from 'azure-iot-device';
-import {
-    BlobServiceClient,
-    StorageSharedKeyCredential
-} from '@azure/storage-blob';
-import * as moment from 'moment';
-import { join as pathJoin } from 'path';
-import { Readable } from 'stream';
 import {
     arch as osArch,
     platform as osPlatform,
@@ -188,6 +182,9 @@ export class CameraGatewayService {
     @inject('storage')
     private storage: StorageService;
 
+    @inject('blobStore')
+    private blobStore: BlobStoreService;
+
     private onvifModuleId = '';
     private healthCheckRetries: number = defaultHealthCheckRetries;
     private healthState = HealthState.Good;
@@ -209,11 +206,14 @@ export class CameraGatewayService {
     private dpsProvisioningHost: string = defaultDpsProvisioningHost;
     private leafDeviceModelId: string = defaultLeafDeviceModelId;
     private leafDeviceInterfaceInstanceName: string = defaultLeafDeviceInterfaceInstanceName;
-    private blobStorageSharedKeyCredential: StorageSharedKeyCredential;
-    private blobStorageServiceClient: BlobServiceClient;
 
     public async init(): Promise<void> {
         this.server.log([moduleName, 'info'], 'initialize');
+    }
+
+    @bind
+    public getAppKeys(): any {
+        return this.iotCentralAppKeys;
     }
 
     @bind
@@ -380,79 +380,6 @@ export class CameraGatewayService {
         process.exit(1);
     }
 
-    private async ensureBlobServiceClient() {
-        try {
-            if (!this.blobStorageServiceClient) {
-                this.server.log([moduleName, 'info'], `Creating blob storage shared key credential`);
-
-                this.blobStorageSharedKeyCredential = new StorageSharedKeyCredential(this.iotCentralAppKeys.azureBlobAccountName, this.iotCentralAppKeys.azureBlobAccountKey);
-
-                this.server.log([moduleName, 'info'], `Creating blob storage client`);
-
-                this.blobStorageServiceClient = new BlobServiceClient(this.iotCentralAppKeys.azureBlobHostUrl, this.blobStorageSharedKeyCredential);
-            }
-        }
-        catch (ex) {
-            this.server.log([moduleName, 'error'], `Error creating the blob storage service shared key and client: ${ex.message}`);
-        }
-    }
-
-    private async uploadCameraDiscoveryResults(cameraDiscoveryResults: any): Promise<string> {
-        let fileUrl = '';
-
-        try {
-            this.server.log([moduleName, 'info'], `Preparing to upload results to blob storage container`);
-
-            await this.ensureBlobServiceClient();
-
-            const containerClient = this.blobStorageServiceClient.getContainerClient(this.iotCentralAppKeys.azureBlobContainer);
-            const blobName = `Camera Discovery ${moment.utc().format('YYYYMMDD-HHmmss')}.csv`;
-            const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-            const blobContentPath = pathJoin(`https://iotcsafileupload.blob.core.windows.net/`, `onvif-camera-gateway`, blobName);
-
-            const csvResults = [`Name,Model,IpAddress`].concat(cameraDiscoveryResults.map((cameraResult) => {
-                return `${cameraResult?.Name || ''},${cameraResult?.Hardware || ''},${cameraResult?.RemoteAddress || ''}`;
-            })).join('\n');
-
-            const bufferData = Buffer.from(csvResults, 'utf8');
-            const readableStream = new Readable({
-                read() {
-                    this.push(bufferData);
-                    this.push(null);
-                }
-            });
-
-            const uploadOptions = {
-                blobHTTPHeaders: {
-                    blobContentType: 'text/csv'
-                }
-            };
-
-            const uploadResponse = await blockBlobClient.uploadStream(readableStream, bufferData.length, 5, uploadOptions);
-
-            // eslint-disable-next-line no-underscore-dangle
-            if (uploadResponse?._response.status === 201) {
-                await this.server.settings.app.iotCentralModule.sendMeasurement({
-                    [IOnvifCameraDiscovery.Event.UploadDiscoveryResults]: blobContentPath
-                });
-
-                // eslint-disable-next-line no-underscore-dangle
-                this.server.log([moduleName, 'info'], `Success - status: ${uploadResponse?._response.status}, path: ${blobContentPath}`);
-
-                fileUrl = blobContentPath;
-            }
-            else {
-                // eslint-disable-next-line no-underscore-dangle
-                this.server.log([moduleName, 'info'], `Error while uploading content to blob storage - status: ${uploadResponse?._response.status}, code: ${uploadResponse?.errorCode}`);
-            }
-        }
-        catch (ex) {
-            this.server.log([moduleName, 'error'], `Error while uploading content to blob storage container: ${ex.message}`);
-        }
-
-        return fileUrl;
-    }
-
     private async scanForCameras(scanTimeout: number): Promise<IDirectMethodResult> {
         let serviceResponse = {
             status: 500,
@@ -472,9 +399,23 @@ export class CameraGatewayService {
 
             this.server.log([moduleName, 'info'], 'Onvif camera discovery complete, uploading results to blob storage...');
 
-            await this.uploadCameraDiscoveryResults(serviceResponse.payload);
+            const cameraDiscoveryResults = serviceResponse.payload as any[] || [];
+            const csvResults = [`Name,Model,IpAddress`].concat(cameraDiscoveryResults.map((cameraResult) => {
+                return `${cameraResult?.Name || ''},${cameraResult?.Hardware || ''},${cameraResult?.RemoteAddress || ''}`;
+            })).join('\n');
 
-            serviceResponse.message = 'Completed onvif camera discovery and uploaded results to blob store';
+            const fileUrl = await this.blobStore.uploadCSVDataToContainer(csvResults);
+
+            if (fileUrl) {
+                await this.server.settings.app.iotCentralModule.sendMeasurement({
+                    [IOnvifCameraDiscovery.Event.UploadDiscoveryResults]: fileUrl
+                });
+
+                serviceResponse.message = 'Completed onvif camera discovery and uploaded results to blob store';
+            }
+            else {
+                serviceResponse.message = `Error while uploading camera results to blob storage service`;
+            }
         }
         catch (ex) {
             serviceResponse.message = `Error during onvif camera discovery: ${ex.message}`;
@@ -709,7 +650,7 @@ export class CameraGatewayService {
             const objectDetectorCreateOptions: IObjectDetectorCreateOptions = {
                 cameraInfo,
                 onvifModuleId: this.onvifModuleId,
-                appKeys: this.iotCentralAppKeys
+                blobStore: this.blobStore
             };
 
             deviceProvisionResult.deviceInstance = new ObjectDetectorDevice(this.server, objectDetectorCreateOptions);

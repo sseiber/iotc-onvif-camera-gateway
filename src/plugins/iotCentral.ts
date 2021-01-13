@@ -24,6 +24,7 @@ export interface IDirectMethodResult {
 }
 
 export interface IIoTCentralModulePluginOptions {
+    getAppKeys?: () => any;
     debugTelemetry: () => boolean;
     onHandleModuleProperties: (desiredProps: any) => Promise<void>;
     onModuleClientError: (error: Error) => void;
@@ -35,6 +36,7 @@ export type DirectMethodFunction = (commandRequest: DeviceMethodRequest, command
 interface IIoTCentralModule {
     moduleId: string;
     deviceId: string;
+    getAppKeys(): any;
     getModuleClient(): ModuleClient;
     debugTelemetry(): boolean;
     sendMeasurement(data: any): Promise<void>;
@@ -67,6 +69,9 @@ export const iotCentralModulePlugin: Plugin<any> = {
         const iotCentralPlugin: IIoTCentralModule = {
             moduleId: process.env.IOTEDGE_MODULEID || '',
             deviceId: process.env.IOTEDGE_DEVICEID || '',
+            getAppKeys: (): any => {
+                return {};
+            },
             getModuleClient: (): ModuleClient => {
                 return null;
             },
@@ -105,11 +110,6 @@ export class IotCentralModule {
         this.options = options;
     }
 
-    @bind
-    public getModuleClient(): ModuleClient {
-        return this.moduleClient;
-    }
-
     public async startModule(): Promise<boolean> {
         if (process.env.LOCAL_DEBUG === '1') {
             return;
@@ -120,6 +120,7 @@ export class IotCentralModule {
         try {
             this.server.settings.app.iotCentralModule.moduleId = process.env.IOTEDGE_MODULEID || '';
             this.server.settings.app.iotCentralModule.deviceId = process.env.IOTEDGE_DEVICEID || '';
+            this.server.settings.app.iotCentralModule.getAppKeys = this.getAppKeys;
             this.server.settings.app.iotCentralModule.getModuleClient = this.getModuleClient;
             this.server.settings.app.iotCentralModule.debugTelemetry = this.debugTelemetry;
             this.server.settings.app.iotCentralModule.sendMeasurement = this.sendMeasurement;
@@ -142,6 +143,16 @@ export class IotCentralModule {
         }
 
         return result;
+    }
+
+    @bind
+    public getAppKeys(): any {
+        return this.options?.getAppKeys() || {};
+    }
+
+    @bind
+    public getModuleClient(): ModuleClient {
+        return this.moduleClient;
     }
 
     @bind

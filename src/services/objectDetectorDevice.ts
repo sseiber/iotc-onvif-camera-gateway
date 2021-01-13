@@ -8,10 +8,8 @@ import {
 } from './inferenceProcessor';
 import { HealthState } from './health';
 import { IDirectMethodResult } from '../plugins/iotCentral';
-import {
-    IIoTCentralAppKeys,
-    ICameraProvisionInfo
-} from './cameraGateway';
+import { ICameraProvisionInfo } from './cameraGateway';
+import { BlobStoreService } from './blobStore';
 import { Mqtt } from 'azure-iot-device-mqtt';
 import {
     Client as IoTDeviceClient,
@@ -20,12 +18,8 @@ import {
     DeviceMethodRequest,
     DeviceMethodResponse
 } from 'azure-iot-device';
-import {
-    BlobServiceClient,
-    StorageSharedKeyCredential
-} from '@azure/storage-blob';
-import * as moment from 'moment';
 import { join as pathJoin } from 'path';
+import * as moment from 'moment';
 import { URL } from 'url';
 import { Readable } from 'stream';
 import { bind, defer, emptyObj } from '../utils';
@@ -40,7 +34,7 @@ export interface IClientConnectResult {
 export interface IObjectDetectorCreateOptions {
     cameraInfo: ICameraProvisionInfo;
     onvifModuleId: string;
-    appKeys: IIoTCentralAppKeys;
+    blobStore: BlobStoreService;
 }
 
 export const ICameraInformation = {
@@ -154,9 +148,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private server: Server;
     private cameraInfo: ICameraProvisionInfo;
     private onvifModuleId: string;
-    private appKeys: IIoTCentralAppKeys;
-    private blobStorageSharedKeyCredential: StorageSharedKeyCredential;
-    private blobStorageServiceClient: BlobServiceClient;
+    private blobStore: BlobStoreService;
     private deviceClient: IoTDeviceClient = null;
     private deviceTwin: Twin = null;
     private deferredStart = defer();
@@ -177,7 +169,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         this.server = server;
         this.cameraInfo = options.cameraInfo;
         this.onvifModuleId = options.onvifModuleId;
-        this.appKeys = options.appKeys;
+        this.blobStore = options.blobStore;
     }
 
     public get id(): string {
@@ -305,79 +297,6 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     public async uploadContent(data: Buffer): Promise<string> {
         return '';
-    }
-
-    private async ensureBlobServiceClient() {
-        try {
-            if (!this.blobStorageServiceClient) {
-                this.server.log([moduleName, 'info'], `Creating blob storage shared key credential`);
-
-                this.blobStorageSharedKeyCredential = new StorageSharedKeyCredential(this.appKeys.azureBlobAccountName, this.appKeys.azureBlobAccountKey);
-
-                this.server.log([moduleName, 'info'], `Creating blob storage client`);
-
-                this.blobStorageServiceClient = new BlobServiceClient(this.appKeys.azureBlobHostUrl, this.blobStorageSharedKeyCredential);
-            }
-        }
-        catch (ex) {
-            this.server.log([moduleName, 'error'], `Error creating the blob storage service shared key and client: ${ex.message}`);
-        }
-    }
-
-    private async uploadContentFromBase64(data: string): Promise<string> {
-        let imageUrl = '';
-
-        try {
-            this.server.log([moduleName, 'info'], `Preparing to upload image content to blob storage container`);
-
-            await this.ensureBlobServiceClient();
-
-            const containerClient = this.blobStorageServiceClient.getContainerClient(this.appKeys.azureBlobContainer);
-            const blobName = `${moment.utc().format('YYYYMMDD-HHmmss')}.jpg`;
-            const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-            const blobContentPath = pathJoin(`https://iotcsafileupload.blob.core.windows.net/`, `onvif-camera-gateway`, blobName);
-
-            const bufferData = Buffer.from(data, 'base64');
-            const readableStream = new Readable({
-                read() {
-                    this.push(bufferData);
-                    this.push(null);
-                }
-            });
-
-            const uploadOptions = {
-                blobHTTPHeaders: {
-                    blobContentType: 'image/jpeg'
-                }
-            };
-
-            const uploadResponse = await blockBlobClient.uploadStream(readableStream, bufferData.length, 5, uploadOptions);
-
-            // eslint-disable-next-line no-underscore-dangle
-            if (uploadResponse?._response.status === 201) {
-                await this.sendMeasurement({
-                    [ICameraDeviceInterface.Event.UploadImage]: blobContentPath
-                });
-
-                await this.updateDeviceProperties({
-                    [IObjectDetectorInterface.Property.InferenceImageUrl]: blobContentPath
-                });
-
-                // eslint-disable-next-line no-underscore-dangle
-                this.server.log([moduleName, 'info'], `Success - status: ${uploadResponse?._response.status}, path: ${blobContentPath}`);
-
-                imageUrl = blobContentPath;
-            }
-            else {
-                // eslint-disable-next-line no-underscore-dangle
-                this.server.log([moduleName, 'info'], `Error while uploading content to blob storage - status: ${uploadResponse?._response.status}, code: ${uploadResponse?.errorCode}`);
-            }
-        }
-        catch (ex) {
-            this.server.log([moduleName, 'error'], `Error while uploading content to blob storage container: ${ex.message}`);
-        }
-
-        return imageUrl;
     }
 
     // @ts-ignore
@@ -595,7 +514,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private async captureImage(): Promise<IDirectMethodResult> {
         let serviceResponse = {
             status: 500,
-            message: `Error durng onvif GetSnapshot request`,
+            message: `Error during onvif GetSnapshot request`,
             payload: {}
         };
 
@@ -616,9 +535,22 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
 
             this.server.log([moduleName, 'info'], `Image capture complete, uploading image data to blob storage...`);
 
-            await this.uploadContentFromBase64(serviceResponse.payload as string);
+            const blobUrl = await this.blobStore.uploadBase64ImageToContainer(serviceResponse.payload as string);
 
-            serviceResponse.message = `Successfully captured and uploaded image from camera device: ${this.cameraInfo.deviceId}`;
+            if (blobUrl) {
+                await this.sendMeasurement({
+                    [ICameraDeviceInterface.Event.UploadImage]: blobUrl
+                });
+
+                await this.updateDeviceProperties({
+                    [IObjectDetectorInterface.Property.InferenceImageUrl]: blobUrl
+                });
+
+                serviceResponse.message = `Successfully captured and uploaded image from camera device: ${this.cameraInfo.deviceId}`;
+            }
+            else {
+                serviceResponse.message = `An error occurred while uploading the captured image to the blob storage service`;
+            }
         }
         catch (ex) {
             serviceResponse.message = `An error occurred while attempting to capture an image on device: ${this.cameraInfo.deviceId}: ${ex.message}`;
