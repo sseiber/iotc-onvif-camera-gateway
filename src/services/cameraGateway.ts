@@ -68,7 +68,6 @@ export interface ICameraProvisionInfo {
     ipAddress: string;
     onvifUsername: string;
     onvifPassword: string;
-    onvifMediaProfileToken: string;
 }
 
 interface IProvisionResult {
@@ -78,14 +77,6 @@ interface IProvisionResult {
     clientConnectionStatus: boolean;
     clientConnectionMessage: string;
     deviceInstance: ObjectDetectorDevice;
-}
-
-enum OnvifCameraGatewaySettings {
-    DebugTelemetry = 'wpDebugTelemetry'
-}
-
-interface IOnvifCameraGatewaySettings {
-    [OnvifCameraGatewaySettings.DebugTelemetry]: boolean;
 }
 
 enum IoTCentralClientState {
@@ -103,8 +94,7 @@ enum AddCameraRequestParams {
     Name = 'AddCameraRequestParams_Name',
     IpAddress = 'AddCameraRequestParams_IpAddress',
     OnvifUsername = 'AddCameraRequestParams_OnvifUsername',
-    OnvifPassword = 'AddCameraRequestParams_OnvifPassword',
-    OnvifMediaProfileToken = 'AddCameraRequestParams_OnvifMediaProfileToken'
+    OnvifPassword = 'AddCameraRequestParams_OnvifPassword'
 }
 
 enum DeleteCameraRequestParams {
@@ -113,11 +103,6 @@ enum DeleteCameraRequestParams {
 
 enum ScanForCamerasRequestParams {
     ScanTimeout = 'ScanForCamerasRequestParams_ScanTimeout'
-}
-
-enum TestOnvifRequestParams {
-    Command = 'TestOnvifRequestParams_Command',
-    Payload = 'TestOnvifRequestParams_Payload'
 }
 
 enum RestartModuleRequestParams {
@@ -147,9 +132,6 @@ export const IOnvifCameraGateway = {
         CreateCamera: 'evCreateCamera',
         DeleteCamera: 'evDeleteCamera'
     },
-    Setting: {
-        DebugTelemetry: OnvifCameraGatewaySettings.DebugTelemetry
-    },
     Command: {
         AddCamera: 'cmAddCamera',
         DeleteCamera: 'cmDeleteCamera',
@@ -160,11 +142,31 @@ export const IOnvifCameraGateway = {
 export const IOnvifCameraDiscovery = {
     Event: {
         CameraDiscoveryStarted: 'evCameraDiscoveryStarted',
-        CameraDiscoveryCompleted: 'evCameraDiscoveryCompleted',
-        UploadDiscoveryResults: 'evUploadDiscoveryResults'
+        CameraDiscoveryCompleted: 'evCameraDiscoveryCompleted'
     },
     Command: {
-        ScanForCameras: 'cmScanForCameras',
+        ScanForCameras: 'cmScanForCameras'
+    }
+};
+
+enum TestOnvifRequestParams {
+    Command = 'TestOnvifRequestParams_Command',
+    Payload = 'TestOnvifRequestParams_Payload'
+}
+
+enum OnvifCameraDiagnosticsSettings {
+    DebugTelemetry = 'wpDebugTelemetry'
+}
+
+interface IOnvifCameraDiagnosticsSettings {
+    [OnvifCameraDiagnosticsSettings.DebugTelemetry]: boolean;
+}
+
+export const IOnvifCameraDiagnostics = {
+    Setting: {
+        DebugTelemetry: OnvifCameraDiagnosticsSettings.DebugTelemetry
+    },
+    Command: {
         TestOnvif: 'cmTestOnvif'
     }
 };
@@ -189,8 +191,8 @@ export class CameraGatewayService {
     private healthCheckRetries: number = defaultHealthCheckRetries;
     private healthState = HealthState.Good;
     private healthCheckFailStreak = 0;
-    private moduleSettings: IOnvifCameraGatewaySettings = {
-        [OnvifCameraGatewaySettings.DebugTelemetry]: false
+    private moduleSettings: IOnvifCameraDiagnosticsSettings = {
+        [OnvifCameraDiagnosticsSettings.DebugTelemetry]: false
     };
     private iotCentralAppKeys: IIoTCentralAppKeys = {
         iotCentralAppHost: '',
@@ -218,7 +220,7 @@ export class CameraGatewayService {
 
     @bind
     public debugTelemetry(): boolean {
-        return this.moduleSettings[OnvifCameraGatewaySettings.DebugTelemetry];
+        return this.moduleSettings[OnvifCameraDiagnosticsSettings.DebugTelemetry];
     }
 
     @bind
@@ -243,7 +245,7 @@ export class CameraGatewayService {
                 const value = desiredChangedSettings[setting];
 
                 switch (setting) {
-                    case IOnvifCameraGateway.Setting.DebugTelemetry:
+                    case IOnvifCameraDiagnostics.Setting.DebugTelemetry:
                         patchedProperties[setting] = (this.moduleSettings[setting] as any) = value || false;
                         break;
 
@@ -283,7 +285,7 @@ export class CameraGatewayService {
         this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.DeleteCamera, this.deleteCameraDirectMethod);
         this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraGateway.Command.RestartModule, this.restartModuleDirectMethod);
         this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraDiscovery.Command.ScanForCameras, this.scanForCamerasDirectMethod);
-        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraDiscovery.Command.TestOnvif, this.testOnvifDirectMethod);
+        this.server.settings.app.iotCentralModule.addDirectMethod(IOnvifCameraDiagnostics.Command.TestOnvif, this.testOnvifDirectMethod);
 
         const systemProperties = await this.getSystemProperties();
         const moduleProperties = await this.getEdgeDeviceProperties();
@@ -332,7 +334,7 @@ export class CameraGatewayService {
             this.healthState = healthState;
 
             for (const device of this.deviceMap) {
-                forget(device[1].getHealth);
+                forget(device[1]?.getHealth);
             }
         }
         catch (ex) {
@@ -383,7 +385,7 @@ export class CameraGatewayService {
     private async scanForCameras(scanTimeout: number): Promise<IDirectMethodResult> {
         let serviceResponse = {
             status: 500,
-            message: `Error durng onvif Discover request`,
+            message: `Error executing onvif Discover request`,
             payload: {}
         };
 
@@ -408,7 +410,7 @@ export class CameraGatewayService {
 
             if (fileUrl) {
                 await this.server.settings.app.iotCentralModule.sendMeasurement({
-                    [IOnvifCameraDiscovery.Event.UploadDiscoveryResults]: fileUrl
+                    [IOnvifCameraDiscovery.Event.CameraDiscoveryCompleted]: fileUrl
                 });
 
                 serviceResponse.message = 'Completed onvif camera discovery and uploaded results to blob store';
@@ -428,7 +430,7 @@ export class CameraGatewayService {
     private async testOnvif(command: string, requestParams: any): Promise<IDirectMethodResult> {
         let serviceResponse = {
             status: 500,
-            message: `Error durng onvif test request`,
+            message: `Error executing onvif test request`,
             payload: {}
         };
 
@@ -437,8 +439,6 @@ export class CameraGatewayService {
                 this.onvifModuleId,
                 command,
                 requestParams);
-
-            serviceResponse.message = `Executed onvif command: ${command}`;
         }
         catch (ex) {
             serviceResponse.message = `Error executing onvif ${command} command: ${ex.message}`;
@@ -522,24 +522,18 @@ export class CameraGatewayService {
                             json: true
                         });
 
-                    if (devicePropertiesResponse.payload) {
-                        this.server.log([moduleName, 'info'], `Recreating device: ${device.id}`);
+                    this.server.log([moduleName, 'info'], `Found onvif camera device module on device id: ${device.id}`);
 
-                        await this.createCamera({
-                            deviceId: device.id,
-                            deviceName: devicePropertiesResponse.payload.rpDeviceName,
-                            ipAddress: devicePropertiesResponse.payload.rpIpAddress,
-                            onvifUsername: devicePropertiesResponse.payload.rpOnvifUsername,
-                            onvifPassword: devicePropertiesResponse.payload.rpOnvifPassword,
-                            onvifMediaProfileToken: devicePropertiesResponse.payload.rpOnvifMediaProfileToken
-                        });
-                    }
-                    else {
-                        this.server.log([moduleName, 'info'], `Found device: ${device.id} - but it is not a Onvif camera device`);
-                    }
+                    await this.createCamera({
+                        deviceId: device.id,
+                        deviceName: devicePropertiesResponse.payload.rpDeviceName,
+                        ipAddress: devicePropertiesResponse.payload.rpIpAddress,
+                        onvifUsername: devicePropertiesResponse.payload.rpOnvifUsername,
+                        onvifPassword: devicePropertiesResponse.payload.rpOnvifPassword
+                    });
                 }
                 catch (ex) {
-                    this.server.log([moduleName, 'error'], `An error occurred while re-creating devices: ${ex.message}`);
+                    this.server.log([moduleName, 'warning'], `Could not find onvif camera device module on device id: ${device.id}`);
                 }
             }
         }
@@ -732,8 +726,7 @@ export class CameraGatewayService {
             deviceName: commandRequest?.payload?.[AddCameraRequestParams.Name],
             ipAddress: commandRequest?.payload?.[AddCameraRequestParams.IpAddress],
             onvifUsername: commandRequest?.payload?.[AddCameraRequestParams.OnvifUsername],
-            onvifPassword: commandRequest?.payload?.[AddCameraRequestParams.OnvifPassword],
-            onvifMediaProfileToken: commandRequest?.payload?.[AddCameraRequestParams.OnvifMediaProfileToken]
+            onvifPassword: commandRequest?.payload?.[AddCameraRequestParams.OnvifPassword]
         };
 
         try {
@@ -741,8 +734,7 @@ export class CameraGatewayService {
                 || !cameraInfo.deviceName
                 || !cameraInfo.ipAddress
                 || !cameraInfo.onvifUsername
-                || !cameraInfo.onvifPassword
-                || !cameraInfo.onvifMediaProfileToken) {
+                || !cameraInfo.onvifPassword) {
                 await commandResponse.send(200, {
                     [CommandResponseParams.StatusCode]: 400,
                     [CommandResponseParams.Message]: `Missing required parameters`,
@@ -841,7 +833,7 @@ export class CameraGatewayService {
 
     @bind
     private async testOnvifDirectMethod(commandRequest: DeviceMethodRequest, commandResponse: DeviceMethodResponse) {
-        this.server.log(['IoTCentralService', 'info'], `${IOnvifCameraDiscovery.Command.TestOnvif} command received`);
+        this.server.log(['IoTCentralService', 'info'], `${IOnvifCameraDiagnostics.Command.TestOnvif} command received`);
 
         const testOnvifResponse = {
             [CommandResponseParams.StatusCode]: 200,
@@ -928,7 +920,9 @@ export class CameraGatewayService {
             return iotcApiResponse;
         }
         catch (ex) {
-            this.server.log(['IoTCentralService', 'error'], `makeRequest: ${ex.message}`);
+            if (this.debugTelemetry() === true) {
+                this.server.log(['IoTCentralService', 'error'], `makeRequest: ${ex.message}`);
+            }
 
             throw ex;
         }

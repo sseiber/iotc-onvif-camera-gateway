@@ -37,18 +37,16 @@ export interface IObjectDetectorCreateOptions {
     blobStore: BlobStoreService;
 }
 
-export const ICameraInformation = {
-    Property: {
-        Manufacturer: 'rpManufacturer',
-        Model: 'rpModel',
-        FirmwareVersion: 'rpFirmwareVersion',
-        HardwareId: 'rpHardwareId',
-        SerialNumber: 'rpSerialNumber'
-    }
-};
-
 enum CameraDeviceSettings {
-    DebugTelemetry = 'wpDebugTelemetry'
+    DebugTelemetry = 'wpDebugTelemetry',
+    OnvifMediaProfile = 'wpOnvifMediaProfile'
+}
+
+enum OnvifMediaProfileValue {
+    OnvifMediaProfile1 = 'OnvifMediaProfile1',
+    OnvifMediaProfile2 = 'OnvifMediaProfile2',
+    OnvifMediaProfile3 = 'OnvifMediaProfile3',
+    OnvifMediaProfile4 = 'OnvifMediaProfile4'
 }
 
 enum ObjectDetectorSettings {
@@ -60,6 +58,7 @@ enum ObjectDetectorSettings {
 
 interface ICameraDeviceSettings {
     [CameraDeviceSettings.DebugTelemetry]: boolean;
+    [CameraDeviceSettings.OnvifMediaProfile]: string;
 }
 
 interface IObjectDetectorSettings {
@@ -85,6 +84,11 @@ enum CommandResponseParams {
     Data = 'CommandResponseParams_Data'
 }
 
+interface IMediaProfileInfo {
+    mediaProfileName: string;
+    mediaProfileToken: string;
+}
+
 export const ICameraDeviceInterface = {
     Telemetry: {
         SystemHeartbeat: 'tlSystemHeartbeat',
@@ -104,13 +108,18 @@ export const ICameraDeviceInterface = {
     },
     Property: {
         DeviceName: 'rpDeviceName',
+        Manufacturer: 'rpManufacturer',
+        Model: 'rpModel',
+        FirmwareVersion: 'rpFirmwareVersion',
+        HardwareId: 'rpHardwareId',
+        SerialNumber: 'rpSerialNumber',
         IpAddress: 'rpIpAddress',
         OnvifUsername: 'rpOnvifUsername',
-        OnvifPassword: 'rpOnvifPassword',
-        OnvifMediaProfileToken: 'rpOnvifMediaProfileToken'
+        OnvifPassword: 'rpOnvifPassword'
     },
     Setting: {
-        DebugTelemetry: CameraDeviceSettings.DebugTelemetry
+        DebugTelemetry: CameraDeviceSettings.DebugTelemetry,
+        OnvifMediaProfile: CameraDeviceSettings.OnvifMediaProfile
     },
     Command: {
         StartImageProcessing: 'cmStartImageProcessing',
@@ -154,8 +163,11 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private deferredStart = defer();
     private healthState = HealthState.Good;
     private cameraDevicesettings: ICameraDeviceSettings = {
-        [CameraDeviceSettings.DebugTelemetry]: false
+        [CameraDeviceSettings.DebugTelemetry]: false,
+        [CameraDeviceSettings.OnvifMediaProfile]: 'None'
     };
+    private mediaProfiles: IMediaProfileInfo[];
+    private currentMediaProfileToken: string;
     private objectDetectorSettings: IObjectDetectorSettings = {
         [ObjectDetectorSettings.DetectionClasses]: defaultDetectionClass,
         [ObjectDetectorSettings.ConfidenceThreshold]: defaultConfidenceThreshold,
@@ -355,39 +367,62 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     }
 
     private async getDeviceProperties(): Promise<any> {
-        let deviceProperties = {};
+        let deviceInfoResult: IDirectMethodResult = {
+            status: 200,
+            message: '',
+            payload: {}
+        };
 
         try {
-            let deviceInfoResult: IDirectMethodResult = {
-                status: 200,
-                message: '',
-                payload: {}
-            };
-
-            const requestParams = {
-                Address: this.cameraInfo.ipAddress,
-                Username: this.cameraInfo.onvifUsername,
-                Password: this.cameraInfo.onvifPassword
-            };
-
             deviceInfoResult = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
                 this.onvifModuleId,
                 'GetDeviceInformation',
-                requestParams);
-
-            deviceProperties = {
-                [ICameraInformation.Property.Manufacturer]: deviceInfoResult.payload.Manufacturer || '',
-                [ICameraInformation.Property.Model]: deviceInfoResult.payload.Model || '',
-                [ICameraInformation.Property.FirmwareVersion]: deviceInfoResult.payload.Firmware || '',
-                [ICameraInformation.Property.HardwareId]: deviceInfoResult.payload.HardwareId,
-                [ICameraInformation.Property.SerialNumber]: deviceInfoResult.payload.SerialNumber
-            };
+                {
+                    Address: this.cameraInfo.ipAddress,
+                    Username: this.cameraInfo.onvifUsername,
+                    Password: this.cameraInfo.onvifPassword
+                });
         }
         catch (ex) {
-            this.server.log([moduleName, 'error'], `Error while in testOnvif handler: ${ex.message}`);
+            this.server.log([moduleName, 'error'], `Error getting onvif device properties: ${ex.message}`);
         }
 
-        return deviceProperties;
+        return {
+            [ICameraDeviceInterface.Property.Manufacturer]: deviceInfoResult.payload?.Manufacturer || '',
+            [ICameraDeviceInterface.Property.Model]: deviceInfoResult.payload?.Model || '',
+            [ICameraDeviceInterface.Property.FirmwareVersion]: deviceInfoResult.payload?.Firmware || '',
+            [ICameraDeviceInterface.Property.HardwareId]: deviceInfoResult.payload?.HardwareId || '',
+            [ICameraDeviceInterface.Property.SerialNumber]: deviceInfoResult.payload?.SerialNumber || ''
+        };
+    }
+
+    private async getDeviceMediaProfiles(): Promise<IMediaProfileInfo[]> {
+        let deviceMediaProfilesResponse: IDirectMethodResult = {
+            status: 200,
+            message: '',
+            payload: {}
+        };
+
+        try {
+            deviceMediaProfilesResponse = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+                this.onvifModuleId,
+                'GetMediaProfileList',
+                {
+                    Address: this.cameraInfo.ipAddress,
+                    Username: this.cameraInfo.onvifUsername,
+                    Password: this.cameraInfo.onvifPassword
+                });
+        }
+        catch (ex) {
+            this.server.log([moduleName, 'error'], `Error getting onvif device media profiles: ${ex.message}`);
+        }
+
+        return deviceMediaProfilesResponse.payload.map?.((mediaProfile) => {
+            return {
+                mediaProfileName: mediaProfile.MediaProfileName,
+                mediaProfileToken: mediaProfile.MediaProfileToken
+            };
+        }) || [];
     }
 
     private async connectDeviceClientInternal(dpsHubConnectionString: string): Promise<IClientConnectResult> {
@@ -463,14 +498,15 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
 
         try {
             const deviceProperties = await this.getDeviceProperties();
+            this.mediaProfiles = await this.getDeviceMediaProfiles();
+            this.currentMediaProfileToken = this.mediaProfiles[0]?.mediaProfileToken || 'None';
 
             await this.updateDeviceProperties({
                 ...deviceProperties,
                 [ICameraDeviceInterface.Property.DeviceName]: this.cameraInfo.deviceName,
                 [ICameraDeviceInterface.Property.IpAddress]: this.cameraInfo.ipAddress,
                 [ICameraDeviceInterface.Property.OnvifUsername]: this.cameraInfo.onvifUsername,
-                [ICameraDeviceInterface.Property.OnvifPassword]: this.cameraInfo.onvifPassword,
-                [ICameraDeviceInterface.Property.OnvifMediaProfileToken]: this.cameraInfo.onvifMediaProfileToken
+                [ICameraDeviceInterface.Property.OnvifPassword]: this.cameraInfo.onvifPassword
             });
 
             await this.sendMeasurement({
@@ -497,36 +533,32 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         }
     }
 
-    private async getOnvifRtspStreamUri(): Promise<IDirectMethodResult> {
-        let serviceResponse = {
-            status: 500,
-            message: `Error durng onvif GetRTSPStreamURI request`,
-            payload: {}
-        };
+    private async getOnvifRtspStreamUri(mediaProfileToken: string): Promise<string> {
+        let rtspStreamUrl = '';
 
         try {
             const requestParams = {
                 Address: this.cameraInfo.ipAddress,
                 Username: this.cameraInfo.onvifUsername,
                 Password: this.cameraInfo.onvifPassword,
-                MediaProfileToken: this.cameraInfo.onvifMediaProfileToken
+                MediaProfileToken: mediaProfileToken
             };
 
-            serviceResponse = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
+            const serviceResponse = await this.server.settings.app.iotCentralModule.invokeDirectMethod(
                 this.onvifModuleId,
                 'GetRTSPStreamURI',
                 requestParams);
 
-            serviceResponse.message = `Onvif request for RTSPStreamURI succeeded: ${serviceResponse.payload}`;
+            rtspStreamUrl = serviceResponse.status === 200 ? serviceResponse.payload : '';
         }
         catch (ex) {
-            this.server.log([moduleName, 'error'], serviceResponse.message);
+            this.server.log([moduleName, 'error'], `An error occurred while getting onvif stream uri from device id: ${this.cameraInfo.deviceId}`);
         }
 
-        return serviceResponse;
+        return rtspStreamUrl;
     }
 
-    private async captureImage(): Promise<IDirectMethodResult> {
+    private async captureImage(mediaProfileToken: string): Promise<IDirectMethodResult> {
         let serviceResponse = {
             status: 500,
             message: `Error during onvif GetSnapshot request`,
@@ -538,7 +570,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                 Address: this.cameraInfo.ipAddress,
                 Username: this.cameraInfo.onvifUsername,
                 Password: this.cameraInfo.onvifPassword,
-                MediaProfileToken: this.cameraInfo.onvifMediaProfileToken
+                MediaProfileToken: mediaProfileToken
             };
 
             this.server.log([moduleName, 'info'], `Starting onvif image capture...`);
@@ -578,7 +610,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
     private async restartCamera(): Promise<IDirectMethodResult> {
         let serviceResponse = {
             status: 500,
-            message: `Error durng onvif Reboot request`,
+            message: `Error executing onvif Reboot request`,
             payload: {}
         };
 
@@ -632,6 +664,36 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                 const value = desiredChangedSettings[setting];
 
                 switch (setting) {
+                    // ICameraDeviceInterface
+                    case ICameraDeviceInterface.Setting.DebugTelemetry:
+                        patchedProperties[setting] = (this.cameraDevicesettings[setting] as any) = value || false;
+                        break;
+
+                    case ICameraDeviceInterface.Setting.OnvifMediaProfile: {
+                        const mediaProfileValue = value || OnvifMediaProfileValue.OnvifMediaProfile1;
+                        switch (mediaProfileValue) {
+                            case OnvifMediaProfileValue.OnvifMediaProfile1:
+                                this.currentMediaProfileToken = this.mediaProfiles?.[0].mediaProfileToken || 'None';
+                                break;
+
+                            case OnvifMediaProfileValue.OnvifMediaProfile2:
+                                this.currentMediaProfileToken = this.mediaProfiles?.[1].mediaProfileToken || 'None';
+                                break;
+
+                            case OnvifMediaProfileValue.OnvifMediaProfile3:
+                                this.currentMediaProfileToken = this.mediaProfiles?.[2].mediaProfileToken || 'None';
+                                break;
+
+                            case OnvifMediaProfileValue.OnvifMediaProfile4:
+                                this.currentMediaProfileToken = this.mediaProfiles?.[3].mediaProfileToken || 'None';
+                                break;
+                        }
+
+                        patchedProperties[setting] = mediaProfileValue;
+                        break;
+                    }
+
+                    // IObjectDetectorInterface
                     case IObjectDetectorInterface.Setting.DetectionClasses: {
                         const detectionClassesString = (value || '');
 
@@ -651,10 +713,6 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
 
                     case IObjectDetectorInterface.Setting.InferenceTimeout:
                         patchedProperties[setting] = (this.objectDetectorSettings[setting] as any) = value || defaultInferenceTimeout;
-                        break;
-
-                    case ICameraDeviceInterface.Setting.DebugTelemetry:
-                        patchedProperties[setting] = (this.cameraDevicesettings[setting] as any) = value || false;
                         break;
 
                     default:
@@ -700,19 +758,20 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
                 this.objectDetectorSettings[ObjectDetectorSettings.ConfidenceThreshold],
                 this.objectDetectorSettings[ObjectDetectorSettings.InferenceTimeout]);
 
-            const serviceResponse = await this.getOnvifRtspStreamUri();
+            const rtspStreamUri = await this.getOnvifRtspStreamUri(this.currentMediaProfileToken);
+            if (rtspStreamUri) {
+                this.server.log([moduleName, 'info'], `RTSP stream uri: ${rtspStreamUri}`);
 
-            this.server.log([moduleName, 'info'], `RTSP stream uri: ${serviceResponse.payload}`);
+                const rtspUrl = new URL(rtspStreamUri);
+                rtspUrl.username = this.cameraInfo.onvifUsername;
+                rtspUrl.password = this.cameraInfo.onvifPassword;
 
-            const rtspUrl = new URL(serviceResponse.payload);
-            rtspUrl.username = this.cameraInfo.onvifUsername;
-            rtspUrl.password = this.cameraInfo.onvifPassword;
+                await this.inferenceProcessor.startInferenceProcessor(rtspUrl.href);
 
-            await this.inferenceProcessor.startInferenceProcessor(rtspUrl.href);
+                startImageProcessingResponse[CommandResponseParams.Message] = `Started image processing for for deviceId: ${this.cameraInfo.deviceId}`;
 
-            startImageProcessingResponse[CommandResponseParams.Message] = `Started image processing for for deviceId: ${this.cameraInfo.deviceId}`;
-
-            this.server.log(['IoTCentralService', 'info'], startImageProcessingResponse[CommandResponseParams.Message]);
+                this.server.log(['IoTCentralService', 'info'], startImageProcessingResponse[CommandResponseParams.Message]);
+            }
         }
         catch (ex) {
             startImageProcessingResponse[CommandResponseParams.StatusCode] = 500;
@@ -764,7 +823,7 @@ export class ObjectDetectorDevice implements IDeviceTelemetry {
         };
 
         try {
-            const serviceResponse = await this.captureImage();
+            const serviceResponse = await this.captureImage(this.currentMediaProfileToken);
 
             captureImageResponse[CommandResponseParams.Message] = serviceResponse.message;
 

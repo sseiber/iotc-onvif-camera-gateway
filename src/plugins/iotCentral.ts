@@ -249,7 +249,7 @@ export class IotCentralModule {
 
             if (response.status < 200 || response.status > 299) {
                 // throw new Error(`(from invokeMethod) ${response.payload.error?.message}`);
-                directMethodResult.message = `invokeMethod error: status=${response.status}`;
+                directMethodResult.message = `Error executing directMethod ${methodName} on module ${deviceId}, status: ${response.status}`;
                 this.server.log(['IoTCentralModule', 'error'], directMethodResult.message);
             }
             else {

@@ -11,7 +11,7 @@ import { bind } from '../utils';
 
 const moduleName = 'InferenceProcessor';
 
-export interface IObjectInference {
+interface IObjectInference {
     type: string;
     entity: {
         box: {

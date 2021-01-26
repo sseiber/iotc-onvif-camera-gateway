@@ -54,7 +54,8 @@
         "extends": [
             "dtmi:com:iotcentral:OnvifGatewayModule:DeviceInformation;1",
             "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraGateway;1",
-            "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraDiscovery;1"
+            "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraDiscovery;1",
+            "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraDiagnostics;1"
         ],
         "@context": [
             "dtmi:iotcentral:context;2",
@@ -297,15 +298,6 @@
                 "schema": "string"
             },
             {
-                "@type": "Property",
-                "displayName": {
-                    "en": "Debug Telemetry"
-                },
-                "name": "wpDebugTelemetry",
-                "schema": "boolean",
-                "writable": true
-            },
-            {
                 "@type": "Command",
                 "displayName": {
                     "en": "Add Camera"
@@ -356,13 +348,6 @@
                                     "en": "Onvif Password"
                                 },
                                 "name": "AddCameraRequestParams_OnvifPassword",
-                                "schema": "string"
-                            },
-                            {
-                                "displayName": {
-                                    "en": "Onvif Media Profile Token"
-                                },
-                                "name": "AddCameraRequestParams_OnvifMediaProfileToken",
                                 "schema": "string"
                             }
                         ]
@@ -571,17 +556,6 @@
                 "schema": "string"
             },
             {
-                "@type": [
-                    "Telemetry",
-                    "Event"
-                ],
-                "displayName": {
-                    "en": "Upload Discovery Results"
-                },
-                "name": "evUploadDiscoveryResults",
-                "schema": "string"
-            },
-            {
                 "@type": "Command",
                 "displayName": {
                     "en": "Scan for Cameras"
@@ -645,6 +619,28 @@
                         ]
                     }
                 }
+            }
+        ]
+    },
+    {
+        "@context": [
+            "dtmi:iotcentral:context;2",
+            "dtmi:dtdl:context;2"
+        ],
+        "@id": "dtmi:com:iotcentral:OnvifGatewayModule:OnvifCameraDiagnostics;1",
+        "@type": "Interface",
+        "displayName": {
+            "en": "IoT Central Onvif Camera Diagnostics Interface"
+        },
+        "contents": [
+            {
+                "@type": "Property",
+                "displayName": {
+                    "en": "Debug Telemetry"
+                },
+                "name": "wpDebugTelemetry",
+                "schema": "boolean",
+                "writable": true
             },
             {
                 "@type": "Command",
